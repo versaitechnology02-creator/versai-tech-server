@@ -2,7 +2,6 @@ services:
   - type: web
     name: orion-pay-server
     env: node
-    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
