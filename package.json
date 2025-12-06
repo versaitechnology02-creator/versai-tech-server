@@ -4,8 +4,9 @@
   "description": "Orion-Pay - Payment Gateway Middleware Server",
   "main": "dist/index.js",
   "scripts": {
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsc",
     "dev": "ts-node src/index.ts",
-    "build": "tsc --incremental",
     "start": "node dist/index.js"
   },
   "keywords": [
@@ -29,11 +30,13 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.13",
-    "@types/express": "^4.17.17",
-    "@types/jsonwebtoken": "^9.0.4",
-    "@types/node": "^20.4.5",
-    "@types/nodemailer": "^6.4.13",
+    "@types/express": "^4.17.25",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/mongoose": "^5.11.96",
+    "@types/node": "^20.19.25",
+    "@types/nodemailer": "^6.4.21",
     "ts-node": "^10.9.1",
-    "typescript": "^5.1.6"
+    "typescript": "^5.1.6",
+    "rimraf": "^5.0.5"
   }
 }
