@@ -1,4 +1,4 @@
-export interface CreateOrderRequest {
+﻿export interface CreateOrderRequest {
   amount: number
   currency?: string
   description?: string

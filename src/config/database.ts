@@ -1,38 +1,23 @@
-import mongoose from "mongoose"
+import mongoose from 'mongoose'
 
 let isConnected = false
 
-export async function connectDB() {
-  if (isConnected) {
-    return
+export async function connectDB(mongoUri?: string): Promise<void> {
+  if (isConnected) return
+
+  const uri = mongoUri || process.env.MONGO || process.env.MONGO_URI || process.env.MONGODB_URI || ''
+  if (!uri) {
+    throw new Error('MONGO connection string is not provided')
   }
 
-  try {
-    const mongoUri = process.env.MONGODB_URI
-    if (!mongoUri) {
-      throw new Error("MONGODB_URI is not defined in environment variables")
-    }
-
-    await mongoose.connect(mongoUri)
-    isConnected = true
-    console.log("MongoDB connected successfully")
-  } catch (error) {
-    console.error("MongoDB connection failed:", error)
-    throw error
-  }
+  await mongoose.connect(uri)
+  isConnected = true
+  console.log('MongoDB connected')
 }
 
-export async function disconnectDB() {
-  if (!isConnected) {
-    return
-  }
-
-  try {
-    await mongoose.disconnect()
-    isConnected = false
-    console.log("MongoDB disconnected")
-  } catch (error) {
-    console.error("MongoDB disconnection failed:", error)
-    throw error
-  }
+export async function disconnectDB(): Promise<void> {
+  if (!isConnected) return
+  await mongoose.disconnect()
+  isConnected = false
+  console.log('MongoDB disconnected')
 }
