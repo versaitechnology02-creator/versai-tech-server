@@ -4,7 +4,7 @@
   "description": "Orion-Pay - Payment Gateway Middleware Server",
   "main": "dist/index.js",
   "scripts": {
-    "clean": "rimraf dist",
+    "clean": "node -e \"const fs=require('fs'); const p='./dist'; if(fs.existsSync(p)) fs.rmSync(p,{recursive:true,force:true});\"",
     "build": "npm run clean && tsc",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js"
@@ -36,7 +36,6 @@
     "@types/node": "^20.19.25",
     "@types/nodemailer": "^6.4.21",
     "ts-node": "^10.9.1",
-    "typescript": "^5.1.6",
-    "rimraf": "^5.0.5"
+    "typescript": "^5.1.6"
   }
 }
