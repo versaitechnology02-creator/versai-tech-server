@@ -1,5 +1,7 @@
 import express, { type Request, type Response } from "express"
 import razorpay from "../config/razorpay"
+import { createUnpayTransaction } from "../services/unpay"
+import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
 import Transaction from "../models/Transaction"
@@ -281,6 +283,61 @@ router.post("/create-order", async (req: Request, res: Response) => {
       } as any)
     } catch (err) {
       console.error("Failed to persist transaction:", err)
+    }
+
+    // After Razorpay order creation, call Unpay then Smepay sequentially.
+    // These calls are best-effort: failures won't block the main order creation,
+    // but we capture their responses and persist if possible.
+    try {
+      const unpayResp = await createUnpayTransaction({
+        amount,
+        currency,
+        description,
+        customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
+        metadata: { razorpay_order_id: order.id },
+      })
+
+      // attach unpay info to in-memory transaction
+      ;(transaction as any).unpay = unpayResp
+
+      // update DB record with unpay id if present
+      try {
+        await Transaction.findOneAndUpdate(
+          { orderId: order.id },
+          { $set: { "notes.unpay": unpayResp, updatedAt: new Date() } },
+          { upsert: false },
+        )
+      } catch (err) {
+        console.error("Failed to update DB with Unpay response:", err)
+      }
+    } catch (err: any) {
+      console.warn("Unpay call failed (non-fatal):", err.message)
+      ;(transaction as any).unpay_error = err.message
+    }
+
+    try {
+      const smepayResp = await createSmepayTransaction({
+        amount,
+        currency,
+        description,
+        customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
+        metadata: { razorpay_order_id: order.id },
+      })
+
+      ;(transaction as any).smepay = smepayResp
+
+      try {
+        await Transaction.findOneAndUpdate(
+          { orderId: order.id },
+          { $set: { "notes.smepay": smepayResp, updatedAt: new Date() } },
+          { upsert: false },
+        )
+      } catch (err) {
+        console.error("Failed to update DB with Smepay response:", err)
+      }
+    } catch (err: any) {
+      console.warn("Smepay call failed (non-fatal):", err.message)
+      ;(transaction as any).smepay_error = err.message
     }
 
     res.status(201).json({
