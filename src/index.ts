@@ -10,7 +10,7 @@ import userRoutes from './routes/user'
 import adminRoutes from './routes/admin'
 
 const app = express()
-const PORT = Number(process.env.SERVER_PORT) || 5000
+const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
 
 // CORS helper — restrict origins using CLIENT_URL env var when provided
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -46,6 +46,11 @@ app.use('/api/payments', paymentRoutes)
 app.use('/api/api-keys', apiKeyRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/admin', adminRoutes)
+
+// Return consistent JSON for unknown routes instead of HTML
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found` })
+})
 
 // Generic error handler
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
