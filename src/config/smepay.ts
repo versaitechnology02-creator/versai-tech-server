@@ -1,15 +1,21 @@
 import axios from "axios"
 
-const SMEPAY_BASE_URL = process.env.SMEPAY_BASE_URL || "https://api.smepay.io"
-const SMEPAY_API_KEY = process.env.SMEPAY_API_KEY || ""
+export const SMEPAY_BASE_URL = process.env.SMEPAY_BASE_URL || "https://extranet.smepay.in/api"
+export const SMEPAY_CLIENT_ID = process.env.SMEPAY_CLIENT_ID || ""
+export const SMEPAY_CLIENT_SECRET = process.env.SMEPAY_CLIENT_SECRET || ""
 
-const smepayClient = axios.create({
+export const smepayAuthClient = axios.create({
   baseURL: SMEPAY_BASE_URL,
   timeout: 15000,
   headers: {
     "Content-Type": "application/json",
-    ...(SMEPAY_API_KEY ? { Authorization: `Bearer ${SMEPAY_API_KEY}` } : {}),
   },
 })
 
-export default smepayClient
+export const smepayApiClient = axios.create({
+  baseURL: SMEPAY_BASE_URL,
+  timeout: 20000,
+  headers: {
+    "Content-Type": "application/json",
+  },
+})

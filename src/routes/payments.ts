@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express"
 import razorpay from "../config/razorpay"
-import { createUnpayTransaction } from "../services/unpay"
+import { createUnpayTransaction, getUnpayIp } from "../services/unpay"
 import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
@@ -12,6 +12,23 @@ const router = express.Router()
 const transactions: Map<string, PaymentTransaction> = new Map()
 const paymentLinks: Map<string, any> = new Map()
 const payouts: Map<string, any> = new Map()
+
+// Test endpoint to get UnPay server IP (for whitelisting)
+router.get("/test/unpay-ip", async (req: Request, res: Response) => {
+  try {
+    const ip = await getUnpayIp()
+    res.status(200).json({
+      success: true,
+      message: "Contact UnPay support to whitelist this IP",
+      ip,
+    })
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    })
+  }
+})
 
 router.post("/generate-link", async (req: Request, res: Response) => {
   try {
@@ -338,6 +355,10 @@ router.post("/create-order", async (req: Request, res: Response) => {
     } catch (err: any) {
       console.warn("Smepay call failed (non-fatal):", err.message)
       ;(transaction as any).smepay_error = err.message
+      // Surface critical errors to client
+      if (err.message.includes("wallet balance") || err.message.includes("auth failed")) {
+        ;(transaction as any).smepay_critical_error = err.message
+      }
     }
 
     res.status(201).json({
