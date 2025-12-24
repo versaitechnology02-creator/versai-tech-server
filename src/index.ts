@@ -14,8 +14,8 @@ const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
 
 app.use(
   cors({
-    origin: ['https://payments.versaitechnology.com', 'http://payments.versaitechnology.com'],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    origin: 'https://payments.versaitechnology.com',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
   })
