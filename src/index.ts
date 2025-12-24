@@ -12,16 +12,9 @@ import adminRoutes from './routes/admin'
 const app = express()
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
 
-// CORS helper — restrict origins using CLIENT_URL env var when provided
-app.use((req: Request, res: Response, next: NextFunction) => {
-  res.header('Access-Control-Allow-Origin', process.env.CLIENT_URL || 'http://localhost:3000')
-  res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
-  next()
-})
-
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: ['https://payments.versaitechnology.com', 'http://payments.versaitechnology.com'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
