@@ -396,18 +396,16 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // Return the payment link based on selected provider
     // If provider is specified, return only that provider's link
     let finalPaymentLink = null
-    if (provider === "smepay") {
+    if (selectedProvider === "smepay") {
       finalPaymentLink = smepayLink
-    } else if (provider === "unpay") {
+    } else if (selectedProvider === "unpay") {
       finalPaymentLink = unpayLink
-    } else if (provider === "razorpay") {
-      // Razorpay is checkout-only, not for direct links
+    } else if (selectedProvider === "razorpay") {
       finalPaymentLink = null
     } else {
-      // If no provider specified, return both (backward compatibility)
-      // But prefer SMEPay as primary
       finalPaymentLink = smepayLink || unpayLink
     }
+
 
     res.status(201).json({
       success: true,
