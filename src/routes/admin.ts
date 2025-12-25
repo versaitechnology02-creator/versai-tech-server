@@ -173,18 +173,36 @@ router.get("/overview", authMiddleware, isAdmin, async (req: Request, res: Respo
 router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { isAdmin: makeAdmin, isVerified: verifyUser } = req.body as { isAdmin?: boolean; isVerified?: boolean }
+    
+    // Validate user ID format
+    if (!id || id.length < 24) {
+      return res.status(400).json({ success: false, message: "Invalid user ID format" })
+    }
+
+    // Parse and validate request body - handle both string and boolean values
+    let { isAdmin: makeAdmin, isVerified: verifyUser } = req.body as { isAdmin?: boolean | string; isVerified?: boolean | string }
+
+    // Convert string "true"/"false" to boolean if needed
+    if (typeof makeAdmin === "string") {
+      makeAdmin = makeAdmin === "true" || makeAdmin === "1"
+    }
+    if (typeof verifyUser === "string") {
+      verifyUser = verifyUser === "true" || verifyUser === "1"
+    }
 
     const updateFields: any = {}
-    if (typeof makeAdmin !== "undefined") {
-      updateFields.isAdmin = !!makeAdmin
+    if (typeof makeAdmin !== "undefined" && makeAdmin !== null) {
+      updateFields.isAdmin = Boolean(makeAdmin)
     }
-    if (typeof verifyUser !== "undefined") {
-      updateFields.isVerified = !!verifyUser
+    if (typeof verifyUser !== "undefined" && verifyUser !== null) {
+      updateFields.isVerified = Boolean(verifyUser)
     }
 
     if (Object.keys(updateFields).length === 0) {
-      return res.status(400).json({ success: false, message: "At least one field (isAdmin or isVerified) is required in body" })
+      return res.status(400).json({ 
+        success: false, 
+        message: "At least one field (isAdmin or isVerified) is required in body. Both fields must be boolean values (true/false)." 
+      })
     }
 
     const user = await User.findByIdAndUpdate(
@@ -199,7 +217,8 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
 
     res.json({ success: true, data: user })
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message })
+    console.error("Error updating user:", error)
+    res.status(500).json({ success: false, message: error.message || "Failed to update user" })
   }
 })
 
