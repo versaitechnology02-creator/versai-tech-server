@@ -33,70 +33,19 @@ router.get("/test/unpay-ip", async (req: Request, res: Response) => {
 })
 
 router.post("/generate-link", authMiddleware, isVerified, async (req: Request, res: Response) => {
-  try {
-    const { amount, customer_email, customer_name, description } = req.body
-
-    if (!amount || amount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid amount",
-      })
-    }
-
-    const linkId = `link_${Date.now()}`
-    const link = {
-      link_id: linkId,
-      amount,
-      customer_email,
-      customer_name,
-      description,
-      url: `${process.env.CLIENT_URL}/payment?link_id=${linkId}`,
-      created_at: new Date().toISOString(),
-      status: "active",
-    }
-
-    paymentLinks.set(linkId, link)
-
-    res.status(201).json({
-      success: true,
-      data: link,
-    })
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    })
-  }
+  // REMOVED: This route creates frontend URLs which violate UPI intent requirements
+  return res.status(410).json({
+    success: false,
+    message: "This endpoint is deprecated. Use /create-order for direct UPI links."
+  })
 })
 
 router.post("/deep-link", authMiddleware, isVerified, async (req: Request, res: Response) => {
-  try {
-    const { amount, customer_email, customer_name, return_url, notify_url } = req.body
-
-    const linkId = `deeplink_${Date.now()}`
-    const deepLink = {
-      link_id: linkId,
-      amount,
-      customer_email,
-      customer_name,
-      return_url,
-      notify_url,
-      url: `${process.env.CLIENT_URL}/payment?deep_link=${linkId}`,
-      created_at: new Date().toISOString(),
-    }
-
-    paymentLinks.set(linkId, deepLink)
-
-    res.status(201).json({
-      success: true,
-      data: deepLink,
-    })
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    })
-  }
+  // REMOVED: This route creates frontend URLs which violate UPI intent requirements
+  return res.status(410).json({
+    success: false,
+    message: "This endpoint is deprecated. Use /create-order for direct UPI links."
+  })
 })
 
 router.post("/payout", async (req: Request, res: Response) => {
@@ -425,7 +374,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         currency: order.currency,
         key_id: process.env.RAZORPAY_KEY_ID,
         // Return SINGLE payment_link field (null if unavailable)
-        payment_link: finalPaymentLink,
+        final_payment_link: finalPaymentLink,
       },
     })
   } catch (error: any) {

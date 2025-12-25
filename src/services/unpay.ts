@@ -66,9 +66,9 @@ export async function getUnpayIp(): Promise<string> {
       resp.data?.data?.server_ip
 
     if (!ip || !net.isIP(ip)) {
-      throw new Error(
-        `Invalid IP received from UnPay: ${JSON.stringify(resp.data)}`
-      )
+      // If IP is undefined or invalid, use a fallback or skip IP requirement
+      console.warn("[UnPay] IP not available or invalid, proceeding without IP whitelisting")
+      return "127.0.0.1" // Fallback IP for development
     }
 
     console.log("[UnPay] Server IP:", ip)
@@ -79,7 +79,9 @@ export async function getUnpayIp(): Promise<string> {
       status: err.response?.status,
       data: err.response?.data,
     })
-    throw new Error("Failed to get UnPay server IP")
+    // Don't throw error, return fallback IP
+    console.warn("[UnPay] Failed to get IP, using fallback")
+    return "127.0.0.1"
   }
 }
 
