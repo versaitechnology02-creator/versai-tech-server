@@ -244,7 +244,7 @@ router.get("/settlements", (req: Request, res: Response) => {
 // Create Order
 router.post("/create-order", authMiddleware, isVerified, async (req: Request, res: Response) => {
   try {
-    const { amount, currency = "INR", description, customer_id, receipt, notes } = req.body as CreateOrderRequest
+    const { amount, currency = "INR", description, customer_id, receipt, notes, provider } = req.body as CreateOrderRequest & { provider?: string }
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -304,62 +304,78 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       console.error("Failed to persist transaction:", err)
     }
 
-    // After Razorpay order creation, call Unpay then Smepay sequentially.
-    // These calls are best-effort: failures won't block the main order creation,
-    // but we capture their responses and persist if possible.
-    try {
-      const unpayResp = await createUnpayTransaction({
-        amount,
-        currency,
-        description,
-        customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
-        metadata: { razorpay_order_id: order.id },
-      })
-
-      // attach unpay info to in-memory transaction
-      ;(transaction as any).unpay = unpayResp
-
-      // update DB record with unpay id if present
+    // Call only the selected provider (or both if no provider specified for backward compatibility)
+    // This ensures money goes to the correct merchant account
+    const selectedProvider = provider?.toLowerCase()
+    
+    // Call UnPay only if selected or if no provider specified (backward compatibility)
+    if (!selectedProvider || selectedProvider === "unpay") {
       try {
-        await Transaction.findOneAndUpdate(
-          { orderId: order.id },
-          { $set: { "notes.unpay": unpayResp, updatedAt: new Date() } },
-          { upsert: false },
-        )
-      } catch (err) {
-        console.error("Failed to update DB with Unpay response:", err)
+        const unpayResp = await createUnpayTransaction({
+          amount,
+          currency,
+          description,
+          customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
+          metadata: { razorpay_order_id: order.id },
+        })
+
+        // attach unpay info to in-memory transaction
+        ;(transaction as any).unpay = unpayResp
+
+        // update DB record with unpay id if present
+        try {
+          await Transaction.findOneAndUpdate(
+            { orderId: order.id },
+            { $set: { "notes.unpay": unpayResp, updatedAt: new Date() } },
+            { upsert: false },
+          )
+        } catch (err) {
+          console.error("Failed to update DB with Unpay response:", err)
+        }
+      } catch (err: any) {
+        console.warn("Unpay call failed (non-fatal):", err.message)
+        ;(transaction as any).unpay_error = err.message
+        // If UnPay was specifically selected and failed, surface the error
+        if (selectedProvider === "unpay") {
+          ;(transaction as any).unpay_critical_error = err.message
+        }
       }
-    } catch (err: any) {
-      console.warn("Unpay call failed (non-fatal):", err.message)
-      ;(transaction as any).unpay_error = err.message
     }
 
-    try {
-      const smepayResp = await createSmepayTransaction({
-        amount,
-        currency,
-        description,
-        customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
-        metadata: { razorpay_order_id: order.id },
-      })
-
-      ;(transaction as any).smepay = smepayResp
-
+    // Call SMEPay only if selected or if no provider specified (backward compatibility)
+    // SMEPay is PRIMARY provider - prioritize it
+    if (!selectedProvider || selectedProvider === "smepay") {
       try {
-        await Transaction.findOneAndUpdate(
-          { orderId: order.id },
-          { $set: { "notes.smepay": smepayResp, updatedAt: new Date() } },
-          { upsert: false },
-        )
-      } catch (err) {
-        console.error("Failed to update DB with Smepay response:", err)
-      }
-    } catch (err: any) {
-      console.warn("Smepay call failed (non-fatal):", err.message)
-      ;(transaction as any).smepay_error = err.message
-      // Surface critical errors to client
-      if (err.message.includes("wallet balance") || err.message.includes("auth failed")) {
-        ;(transaction as any).smepay_critical_error = err.message
+        const smepayResp = await createSmepayTransaction({
+          amount,
+          currency,
+          description,
+          customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
+          metadata: { razorpay_order_id: order.id },
+        })
+
+        ;(transaction as any).smepay = smepayResp
+
+        try {
+          await Transaction.findOneAndUpdate(
+            { orderId: order.id },
+            { $set: { "notes.smepay": smepayResp, updatedAt: new Date() } },
+            { upsert: false },
+          )
+        } catch (err) {
+          console.error("Failed to update DB with Smepay response:", err)
+        }
+      } catch (err: any) {
+        console.warn("Smepay call failed (non-fatal):", err.message)
+        ;(transaction as any).smepay_error = err.message
+        // Surface critical errors to client
+        if (err.message.includes("wallet balance") || err.message.includes("auth failed")) {
+          ;(transaction as any).smepay_critical_error = err.message
+        }
+        // If SMEPay was specifically selected and failed, surface the error
+        if (selectedProvider === "smepay") {
+          ;(transaction as any).smepay_critical_error = err.message
+        }
       }
     }
 
@@ -371,15 +387,27 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     const unpayPaymentUrl = (transaction as any).unpay?.payment_url
     const unpayLink = unpayUpiIntent || unpayPaymentUrl || null
     
-    // SMEPay: Prioritize UPI link, then DQR link, then official SMEPay hosted checkout URL
-    // SMEPay service returns payment_url and checkout_url in the response
-    const smepayUpiLink = (transaction as any).smepay?.upi_link
-    const smepayDqrLink = (transaction as any).smepay?.dqr_link
-    const smepayDeeplink = (transaction as any).smepay?.deeplink
-    const smepayCheckoutUrl = (transaction as any).smepay?.checkout_url
+    // SMEPay: Use ONLY payment_url (as per requirement - PRIMARY provider)
+    // SMEPay service returns payment_url in the response - this is the official gateway link
     const smepayPaymentUrl = (transaction as any).smepay?.payment_url
-    // Use the checkout_url or payment_url from SMEPay service response
-    const smepayLink = smepayUpiLink || smepayDqrLink || smepayDeeplink || smepayCheckoutUrl || smepayPaymentUrl || null
+    // CRITICAL: Use ONLY payment_url for SMEPay (primary provider requirement)
+    const smepayLink = smepayPaymentUrl || null
+
+    // Return the payment link based on selected provider
+    // If provider is specified, return only that provider's link
+    let finalPaymentLink = null
+    if (provider === "smepay") {
+      finalPaymentLink = smepayLink
+    } else if (provider === "unpay") {
+      finalPaymentLink = unpayLink
+    } else if (provider === "razorpay") {
+      // Razorpay is checkout-only, not for direct links
+      finalPaymentLink = null
+    } else {
+      // If no provider specified, return both (backward compatibility)
+      // But prefer SMEPay as primary
+      finalPaymentLink = smepayLink || unpayLink
+    }
 
     res.status(201).json({
       success: true,
@@ -390,8 +418,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         key_id: process.env.RAZORPAY_KEY_ID,
         // Include UPI intents or official gateway hosted links ONLY
         // NEVER include frontend URLs
-        unpay_upi_intent: unpayLink || null,
-        smepay_upi_link: smepayLink || null,
+        // Return provider-specific link based on selection
+        payment_link: finalPaymentLink, // Primary payment link for selected provider
+        unpay_upi_intent: unpayLink || null, // For backward compatibility
+        smepay_upi_link: smepayLink || null, // For backward compatibility
+        provider: provider || null, // Return selected provider
       },
     })
   } catch (error: any) {
