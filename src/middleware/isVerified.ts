@@ -10,8 +10,16 @@ export default async function isVerified(req: ReqWithUser, res: Response, next: 
       return res.status(401).json({ success: false, message: "Unauthorized" })
     }
 
-    const user = await User.findById(userId).select("isVerified")
-    if (!user || !user.isVerified) {
+    // Check both isVerified and verified fields for compatibility
+    const user = await User.findById(userId).select("isVerified verified")
+    if (!user) {
+      return res.status(403).json({ success: false, message: "Your account is pending admin verification." })
+    }
+
+    // User is verified if either isVerified or verified is true
+    const isUserVerified = user.isVerified === true || user.verified === true
+    
+    if (!isUserVerified) {
       return res.status(403).json({ success: false, message: "Your account is pending admin verification." })
     }
 

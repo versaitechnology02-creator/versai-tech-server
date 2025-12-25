@@ -195,7 +195,16 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
       updateFields.isAdmin = Boolean(makeAdmin)
     }
     if (typeof verifyUser !== "undefined" && verifyUser !== null) {
-      updateFields.isVerified = Boolean(verifyUser)
+      const isVerifiedValue = Boolean(verifyUser)
+      updateFields.isVerified = isVerifiedValue
+      // Also sync the 'verified' field for consistency
+      updateFields.verified = isVerifiedValue
+      // Set verifiedAt timestamp when verifying
+      if (isVerifiedValue) {
+        updateFields.verifiedAt = new Date()
+      } else {
+        updateFields.verifiedAt = null
+      }
     }
 
     if (Object.keys(updateFields).length === 0) {
@@ -205,10 +214,11 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
       })
     }
 
+    // Use findOneAndUpdate with runValidators to ensure proper persistence
     const user = await User.findByIdAndUpdate(
       id,
       { $set: updateFields },
-      { new: true },
+      { new: true, runValidators: true }
     ).select("-password -otp")
 
     if (!user) {
