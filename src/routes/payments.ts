@@ -258,7 +258,8 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     const selectedProvider = provider?.toLowerCase()
     
     // Call UnPay only if selected or if no provider specified (backward compatibility)
-    if (!selectedProvider || selectedProvider === "unpay") {
+    // Skip UnPay in local development to avoid IP whitelisting issues
+    if ((!selectedProvider || selectedProvider === "unpay") && !process.env.CLIENT_URL?.includes('localhost')) {
       try {
         const unpayResp = await createUnpayTransaction({
           amount,
@@ -289,6 +290,10 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           ;(transaction as any).unpay_critical_error = err.message
         }
       }
+    } else if (selectedProvider === "unpay" && process.env.CLIENT_URL?.includes('localhost')) {
+      // If UnPay is specifically selected but we're in local dev, show error
+      ;(transaction as any).unpay_error = "UnPay is not available in local development environment"
+      ;(transaction as any).unpay_critical_error = "UnPay is not available in local development environment"
     }
 
     // Call SMEPay only if selected or if no provider specified (backward compatibility)
@@ -355,10 +360,10 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       finalPaymentLink = smepayLink
     } else if (normalizedProvider === "unpay") {
       finalPaymentLink = unpayLink
-    } else if (normalizedProvider === "razorpay") {
+    } /* else if (normalizedProvider === "razorpay") {
       // Razorpay is checkout-only, not for direct links or QR
       finalPaymentLink = null
-    } else {
+    } */ else {
       // If no provider specified, fallback priority: SMEPay → UnPay
       finalPaymentLink = smepayLink || unpayLink
     }
