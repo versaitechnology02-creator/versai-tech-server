@@ -173,15 +173,23 @@ router.get("/overview", authMiddleware, isAdmin, async (req: Request, res: Respo
 router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { isAdmin: makeAdmin } = req.body as { isAdmin?: boolean }
+    const { isAdmin: makeAdmin, isVerified: verifyUser } = req.body as { isAdmin?: boolean; isVerified?: boolean }
 
-    if (typeof makeAdmin === "undefined") {
-      return res.status(400).json({ success: false, message: "isAdmin boolean is required in body" })
+    const updateFields: any = {}
+    if (typeof makeAdmin !== "undefined") {
+      updateFields.isAdmin = !!makeAdmin
+    }
+    if (typeof verifyUser !== "undefined") {
+      updateFields.isVerified = !!verifyUser
+    }
+
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({ success: false, message: "At least one field (isAdmin or isVerified) is required in body" })
     }
 
     const user = await User.findByIdAndUpdate(
       id,
-      { $set: { isAdmin: !!makeAdmin } },
+      { $set: updateFields },
       { new: true },
     ).select("-password -otp")
 

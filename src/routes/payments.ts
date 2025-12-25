@@ -5,6 +5,8 @@ import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
 import Transaction from "../models/Transaction"
+import authMiddleware from "../middleware/authMiddleware"
+import isVerified from "../middleware/isVerified"
 
 const router = express.Router()
 
@@ -30,7 +32,7 @@ router.get("/test/unpay-ip", async (req: Request, res: Response) => {
   }
 })
 
-router.post("/generate-link", async (req: Request, res: Response) => {
+router.post("/generate-link", authMiddleware, isVerified, async (req: Request, res: Response) => {
   try {
     const { amount, customer_email, customer_name, description } = req.body
 
@@ -67,7 +69,7 @@ router.post("/generate-link", async (req: Request, res: Response) => {
   }
 })
 
-router.post("/deep-link", async (req: Request, res: Response) => {
+router.post("/deep-link", authMiddleware, isVerified, async (req: Request, res: Response) => {
   try {
     const { amount, customer_email, customer_name, return_url, notify_url } = req.body
 
@@ -240,7 +242,7 @@ router.get("/settlements", (req: Request, res: Response) => {
 })
 
 // Create Order
-router.post("/create-order", async (req: Request, res: Response) => {
+router.post("/create-order", authMiddleware, isVerified, async (req: Request, res: Response) => {
   try {
     const { amount, currency = "INR", description, customer_id, receipt, notes } = req.body as CreateOrderRequest
 
