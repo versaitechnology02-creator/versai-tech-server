@@ -414,6 +414,9 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       finalPaymentLink = smepayLink || unpayLink
     }
 
+    // Log payment link for debugging
+    console.log(`[Payment] Provider: ${normalizedProvider || 'none'}, Payment Link: ${finalPaymentLink || 'null'}`)
+    
     res.status(201).json({
       success: true,
       data: {

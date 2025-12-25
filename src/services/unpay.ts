@@ -112,14 +112,19 @@ export async function createUnpayTransaction(payload: {
     payload.metadata?.order_id ||
     `unpay_${Date.now()}`
 
+  // Use production callback URL - UnPay requires whitelisted IP
+  const callbackUrl = process.env.UNPAY_CALLBACK_URL || 
+                     process.env.CALLBACK_URL ||
+                     (process.env.CLIENT_URL && !process.env.CLIENT_URL.includes('localhost') 
+                       ? `${process.env.CLIENT_URL}/api/unpay/callback`
+                       : `https://payments.versaitechnology.com/api/unpay/callback`)
+
   const requestBody = {
     partner_id: UNPAY_PARTNER_ID,
     txnid: orderId,
     amount: String(amount),
     currency: payload.currency || "INR",
-    callback:
-      process.env.UNPAY_CALLBACK_URL ||
-      `${process.env.CLIENT_URL}/api/unpay/callback`,
+    callback: callbackUrl,
   }
 
   console.log(
