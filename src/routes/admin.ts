@@ -191,9 +191,13 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
     }
 
     const updateFields: any = {}
+    
+    // Handle isAdmin update
     if (typeof makeAdmin !== "undefined" && makeAdmin !== null) {
       updateFields.isAdmin = Boolean(makeAdmin)
     }
+    
+    // Handle isVerified update
     if (typeof verifyUser !== "undefined" && verifyUser !== null) {
       const isVerifiedValue = Boolean(verifyUser)
       updateFields.isVerified = isVerifiedValue
@@ -207,10 +211,11 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
       }
     }
 
+    // Allow updates with either field or both - don't require both
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({ 
         success: false, 
-        message: "At least one field (isAdmin or isVerified) is required in body. Both fields must be boolean values (true/false)." 
+        message: "At least one field (isAdmin or isVerified) must be provided in the request body." 
       })
     }
 
@@ -225,10 +230,24 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
       return res.status(404).json({ success: false, message: "User not found" })
     }
 
+    // Log verification update for debugging
+    if (typeof verifyUser !== "undefined") {
+      console.log(`[Admin] User ${user.email} verification updated:`, {
+        isVerified: user.isVerified,
+        verified: user.verified,
+        verifiedAt: user.verifiedAt,
+        userId: user._id
+      })
+    }
+
     res.json({ success: true, data: user })
   } catch (error: any) {
     console.error("Error updating user:", error)
-    res.status(500).json({ success: false, message: error.message || "Failed to update user" })
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || "Failed to update user",
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    })
   }
 })
 
