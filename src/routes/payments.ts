@@ -385,27 +385,34 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // UnPay: Prioritize UPI intent, fallback to official UnPay hosted link
     const unpayUpiIntent = (transaction as any).unpay?.upi_intent
     const unpayPaymentUrl = (transaction as any).unpay?.payment_url
-    const unpayLink = unpayUpiIntent || unpayPaymentUrl || null
+    const unpayLink = (unpayUpiIntent && typeof unpayUpiIntent === 'string') ? unpayUpiIntent : 
+                     (unpayPaymentUrl && typeof unpayPaymentUrl === 'string') ? unpayPaymentUrl : null
     
     // SMEPay: Use ONLY payment_url (as per requirement - PRIMARY provider)
     // SMEPay service returns payment_url in the response - this is the official gateway link
     const smepayPaymentUrl = (transaction as any).smepay?.payment_url
     // CRITICAL: Use ONLY payment_url for SMEPay (primary provider requirement)
-    const smepayLink = smepayPaymentUrl || null
+    const smepayLink = (smepayPaymentUrl && typeof smepayPaymentUrl === 'string') ? smepayPaymentUrl : null
 
-    // Return the payment link based on selected provider
+    // Return the payment link based on selected provider (normalized to lowercase)
     // If provider is specified, return only that provider's link
-    let finalPaymentLink = null
-    if (selectedProvider === "smepay") {
+    let finalPaymentLink: string | null = null
+    
+    // Normalize provider for comparison (frontend may send "SMEPay", "UnPay", "smepay", etc.)
+    // selectedProvider is already lowercased, use it directly
+    const normalizedProvider = selectedProvider || null
+    
+    if (normalizedProvider === "smepay") {
       finalPaymentLink = smepayLink
-    } else if (selectedProvider === "unpay") {
+    } else if (normalizedProvider === "unpay") {
       finalPaymentLink = unpayLink
-    } else if (selectedProvider === "razorpay") {
+    } else if (normalizedProvider === "razorpay") {
+      // Razorpay is checkout-only, not for direct links or QR
       finalPaymentLink = null
     } else {
+      // If no provider specified, fallback priority: SMEPay → UnPay
       finalPaymentLink = smepayLink || unpayLink
     }
-
 
     res.status(201).json({
       success: true,
@@ -414,13 +421,8 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         amount: order.amount,
         currency: order.currency,
         key_id: process.env.RAZORPAY_KEY_ID,
-        // Include UPI intents or official gateway hosted links ONLY
-        // NEVER include frontend URLs
-        // Return provider-specific link based on selection
-        payment_link: finalPaymentLink, // Primary payment link for selected provider
-        unpay_upi_intent: unpayLink || null, // For backward compatibility
-        smepay_upi_link: smepayLink || null, // For backward compatibility
-        provider: provider || null, // Return selected provider
+        // Return SINGLE payment_link field (null if unavailable)
+        payment_link: finalPaymentLink,
       },
     })
   } catch (error: any) {
