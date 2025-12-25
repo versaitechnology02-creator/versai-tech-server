@@ -363,6 +363,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       }
     }
 
+    // Extract UPI intents from provider responses for QR code and payment links
+    // Prioritize UPI-specific links over generic payment URLs
+    const unpayUpiIntent = (transaction as any).unpay?.upi_intent || (transaction as any).unpay?.payment_url
+    const smepayUpiLink = (transaction as any).smepay?.upi_link || (transaction as any).smepay?.dqr_link || (transaction as any).smepay?.deeplink || (transaction as any).smepay?.payment_url
+
     res.status(201).json({
       success: true,
       data: {
@@ -370,6 +375,9 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         amount: order.amount,
         currency: order.currency,
         key_id: process.env.RAZORPAY_KEY_ID,
+        // Include UPI intents for direct payment via QR code and payment links
+        unpay_upi_intent: unpayUpiIntent || null,
+        smepay_upi_link: smepayUpiLink || null,
       },
     })
   } catch (error: any) {
