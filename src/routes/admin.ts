@@ -197,16 +197,17 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
       updateFields.isAdmin = Boolean(makeAdmin)
     }
     
-    // Handle isVerified update
+    // Handle isVerified update (admin verification)
     if (typeof verifyUser !== "undefined" && verifyUser !== null) {
       const isVerifiedValue = Boolean(verifyUser)
       updateFields.isVerified = isVerifiedValue
-      // Also sync the 'verified' field for consistency
-      updateFields.verified = isVerifiedValue
-      // Set verifiedAt timestamp when verifying
+      // DO NOT override 'verified' field - that's for email/OTP verification
+      // Only update isVerified for admin verification
+      // Set verifiedAt timestamp when admin verifies
       if (isVerifiedValue) {
         updateFields.verifiedAt = new Date()
       } else {
+        // When unverifying, clear the timestamp but keep email verification status
         updateFields.verifiedAt = null
       }
     }

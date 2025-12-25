@@ -363,10 +363,23 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       }
     }
 
-    // Extract UPI intents from provider responses for QR code and payment links
-    // Prioritize UPI-specific links over generic payment URLs
-    const unpayUpiIntent = (transaction as any).unpay?.upi_intent || (transaction as any).unpay?.payment_url
-    const smepayUpiLink = (transaction as any).smepay?.upi_link || (transaction as any).smepay?.dqr_link || (transaction as any).smepay?.deeplink || (transaction as any).smepay?.payment_url
+    // Extract UPI intents and official gateway hosted links from provider responses
+    // CRITICAL: Only return UPI intents or official gateway links, NEVER frontend URLs
+    
+    // UnPay: Prioritize UPI intent, fallback to official UnPay hosted link
+    const unpayUpiIntent = (transaction as any).unpay?.upi_intent
+    const unpayPaymentUrl = (transaction as any).unpay?.payment_url
+    const unpayLink = unpayUpiIntent || unpayPaymentUrl || null
+    
+    // SMEPay: Prioritize UPI link, then DQR link, then official SMEPay hosted checkout URL
+    // SMEPay service returns payment_url and checkout_url in the response
+    const smepayUpiLink = (transaction as any).smepay?.upi_link
+    const smepayDqrLink = (transaction as any).smepay?.dqr_link
+    const smepayDeeplink = (transaction as any).smepay?.deeplink
+    const smepayCheckoutUrl = (transaction as any).smepay?.checkout_url
+    const smepayPaymentUrl = (transaction as any).smepay?.payment_url
+    // Use the checkout_url or payment_url from SMEPay service response
+    const smepayLink = smepayUpiLink || smepayDqrLink || smepayDeeplink || smepayCheckoutUrl || smepayPaymentUrl || null
 
     res.status(201).json({
       success: true,
@@ -375,9 +388,10 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         amount: order.amount,
         currency: order.currency,
         key_id: process.env.RAZORPAY_KEY_ID,
-        // Include UPI intents for direct payment via QR code and payment links
-        unpay_upi_intent: unpayUpiIntent || null,
-        smepay_upi_link: smepayUpiLink || null,
+        // Include UPI intents or official gateway hosted links ONLY
+        // NEVER include frontend URLs
+        unpay_upi_intent: unpayLink || null,
+        smepay_upi_link: smepayLink || null,
       },
     })
   } catch (error: any) {
