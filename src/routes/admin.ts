@@ -180,16 +180,19 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
     }
 
     // Parse and validate request body - handle both string and boolean values
-    let { isVerified: verifyUser } = req.body as { isVerified?: boolean | string }
+    let { isVerified: verifyUser, isAdmin: adminUser } = req.body as { isVerified?: boolean | string, isAdmin?: boolean | string }
 
     // Convert string "true"/"false" to boolean if needed
     if (typeof verifyUser === "string") {
       verifyUser = verifyUser === "true" || verifyUser === "1"
     }
+    if (typeof adminUser === "string") {
+      adminUser = adminUser === "true" || adminUser === "1"
+    }
 
     const updateFields: any = {}
     
-    // Handle isVerified update (admin verification) - only allow this
+    // Handle isVerified update (admin verification)
     if (typeof verifyUser !== "undefined" && verifyUser !== null) {
       const isVerifiedValue = Boolean(verifyUser)
       updateFields.isVerified = isVerifiedValue
@@ -204,11 +207,30 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
       }
     }
 
-    // Allow updates with isVerified only
+    // Handle isAdmin update
+    if (typeof adminUser !== "undefined" && adminUser !== null) {
+      updateFields.isAdmin = Boolean(adminUser)
+    }
+
+    // Allow updates with isVerified or isAdmin
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({ 
         success: false, 
-        message: "isVerified field must be provided in the request body." 
+        message: "isVerified or isAdmin field must be provided in the request body." 
+      })
+    }
+
+    // Fetch the user to validate
+    const existingUser = await User.findById(id)
+    if (!existingUser) {
+      return res.status(404).json({ success: false, message: "User not found" })
+    }
+
+    // If trying to verify (set isVerified=true), ensure user has completed email verification
+    if (updateFields.isVerified === true && !existingUser.verified) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Cannot verify user. User must complete email verification first." 
       })
     }
 
