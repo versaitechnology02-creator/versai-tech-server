@@ -180,24 +180,16 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
     }
 
     // Parse and validate request body - handle both string and boolean values
-    let { isAdmin: makeAdmin, isVerified: verifyUser } = req.body as { isAdmin?: boolean | string; isVerified?: boolean | string }
+    let { isVerified: verifyUser } = req.body as { isVerified?: boolean | string }
 
     // Convert string "true"/"false" to boolean if needed
-    if (typeof makeAdmin === "string") {
-      makeAdmin = makeAdmin === "true" || makeAdmin === "1"
-    }
     if (typeof verifyUser === "string") {
       verifyUser = verifyUser === "true" || verifyUser === "1"
     }
 
     const updateFields: any = {}
     
-    // Handle isAdmin update
-    if (typeof makeAdmin !== "undefined" && makeAdmin !== null) {
-      updateFields.isAdmin = Boolean(makeAdmin)
-    }
-    
-    // Handle isVerified update (admin verification)
+    // Handle isVerified update (admin verification) - only allow this
     if (typeof verifyUser !== "undefined" && verifyUser !== null) {
       const isVerifiedValue = Boolean(verifyUser)
       updateFields.isVerified = isVerifiedValue
@@ -212,11 +204,11 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
       }
     }
 
-    // Allow updates with either field or both - don't require both
+    // Allow updates with isVerified only
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({ 
         success: false, 
-        message: "At least one field (isAdmin or isVerified) must be provided in the request body." 
+        message: "isVerified field must be provided in the request body." 
       })
     }
 
