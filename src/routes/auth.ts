@@ -155,14 +155,16 @@ router.post("/sign-in", async (req: Request, res: Response) => {
     }
 
     // Check email verification (OTP verification) - must be true
-    if (!user.verified) {
+    // EXCEPTION: Admins can login regardless of verification status
+    if (!user.verified && !user.isAdmin) {
       return res.status(403).json({ success: false, message: "Email not verified. Please complete signup verification." })
     }
 
     // CRITICAL: Check admin verification - user CANNOT login until admin verifies
     // verified = email/OTP verification (must be true)
     // isVerified = admin verification (must be true to login)
-    if (!user.isVerified) {
+    // EXCEPTION: Admins can login regardless of isVerified status
+    if (!user.isVerified && !user.isAdmin) {
       return res.status(403).json({ 
         success: false, 
         message: "Your account is pending admin verification. Please wait for approval or contact support." 
