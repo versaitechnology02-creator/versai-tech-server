@@ -63,12 +63,12 @@ export async function sendOTPEmail(email: string, otp: string) {
     transporter = t
 
     const info = await transporter.sendMail({
-      from: EMAIL_FROM || `Orion-Pay <no-reply@localhost>`,
+      from: EMAIL_FROM || `Versai Tech <no-reply@localhost>`,
       to: email,
-      subject: "Your Orion-Pay OTP Code",
+      subject: "Your Versai Tech OTP Code",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">Orion-Pay Verification</h2>
+          <h2 style="color: #333;">Versai Tech Verification</h2>
           <p>Your One-Time Password (OTP) is:</p>
           <div style="background-color: #f0f0f0; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
             <h1 style="letter-spacing: 5px; color: #007bff; margin: 0;">${otp}</h1>
