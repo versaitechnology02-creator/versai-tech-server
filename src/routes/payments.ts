@@ -193,6 +193,9 @@ router.get("/settlements", (req: Request, res: Response) => {
 // Create Order
 router.post("/create-order", authMiddleware, isVerified, async (req: Request, res: Response) => {
   try {
+    console.log("RAZORPAY_KEY_ID IN USE:", process.env.RAZORPAY_KEY_ID);
+    console.log("RAZORPAY_KEY_SECRET SET:", process.env.RAZORPAY_KEY_SECRET ? "YES" : "NO");
+    
     const { amount, currency = "INR", description, customer_id, receipt, notes, provider } = req.body as CreateOrderRequest & { provider?: string }
 
     if (!amount || amount <= 0) {
@@ -334,6 +337,9 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     let razorpayPaymentLink: any = null
     let razorpayQrCode: any = null
     
+    // NOTE: Razorpay should NOT use payment links or QR - only order + checkout
+    // Payment links/QR are optional and feature-restricted for Razorpay
+    /*
     if (selectedProvider === "razorpay") {
       console.log("[Razorpay] Starting payment link/QR creation for Razorpay provider")
       console.log("[Razorpay] Environment keys:", {
@@ -462,6 +468,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         ;(transaction as any).razorpay_error = err.message
       }
     }
+    */
 
     // Extract UPI intents and official gateway hosted links from provider responses
     // CRITICAL: Only return UPI intents or official gateway links, NEVER frontend URLs
@@ -645,7 +652,10 @@ router.get("/transaction/:orderId", (req: Request, res: Response) => {
 
     res.status(200).json({
       success: true,
-      data: transaction,
+      data: {
+        ...transaction,
+        key_id: process.env.RAZORPAY_KEY_ID,
+      },
     })
   } catch (error: any) {
     res.status(500).json({
