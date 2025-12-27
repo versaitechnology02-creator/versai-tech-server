@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express"
 import razorpay from "../config/razorpay"
-import { createUnpayTransaction, getUnpayIp } from "../services/unpay"
+import { createUnpayTransaction, getUnpayIp, decryptAES } from "../services/unpay"
 import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
@@ -498,6 +498,163 @@ router.get("/transactions", (req: Request, res: Response) => {
       success: false,
       message: error.message,
     })
+  }
+})
+
+// SMEPay Webhook Handler
+router.post("/webhook/smepay", async (req: Request, res: Response) => {
+  try {
+    console.log("[SMEPay Webhook] Received webhook:", {
+      headers: req.headers,
+      body: req.body,
+      query: req.query,
+    })
+
+    // Log the payload for analysis - implement proper verification later
+    const { order_id, status, amount, transaction_id } = req.body
+
+    if (!order_id) {
+      console.error("[SMEPay Webhook] Missing order_id")
+      return res.status(400).json({ success: false, message: "Missing order_id" })
+    }
+
+    // Determine status mapping (assuming SMEPay uses similar status values)
+    let dbStatus: string
+    if (status === "success" || status === "SUCCESS" || status === "completed") {
+      dbStatus = "completed"
+    } else if (status === "failed" || status === "FAILED") {
+      dbStatus = "failed"
+    } else {
+      dbStatus = "pending"
+    }
+
+    console.log(`[SMEPay Webhook] Updating transaction ${order_id} to status: ${dbStatus}`)
+
+    // Update transaction in database
+    try {
+      const updateResult = await Transaction.findOneAndUpdate(
+        { orderId: order_id },
+        {
+          $set: {
+            status: dbStatus,
+            paymentId: transaction_id || "",
+            updatedAt: new Date(),
+            "notes.smepay_webhook": {
+              received_at: new Date(),
+              status,
+              amount,
+              transaction_id,
+              raw_payload: req.body,
+            },
+          },
+        },
+        { upsert: false, new: true }
+      )
+
+      if (!updateResult) {
+        console.warn(`[SMEPay Webhook] Transaction ${order_id} not found in database`)
+        return res.status(404).json({ success: false, message: "Transaction not found" })
+      }
+
+      console.log(`[SMEPay Webhook] Successfully updated transaction ${order_id}`)
+    } catch (err: any) {
+      console.error("[SMEPay Webhook] Database update failed:", err.message)
+      return res.status(500).json({ success: false, message: "Database update failed" })
+    }
+
+    // Respond to SMEPay
+    res.status(200).json({ success: true, message: "Webhook processed successfully" })
+  } catch (error: any) {
+    console.error("[SMEPay Webhook] Unexpected error:", error)
+    res.status(500).json({ success: false, message: "Internal server error" })
+  }
+})
+
+// UnPay Webhook Handler
+router.post("/webhook/unpay", async (req: Request, res: Response) => {
+  try {
+    console.log("[UnPay Webhook] Received webhook:", {
+      headers: req.headers,
+      body: req.body,
+      rawBody: (req as any).rawBody,
+    })
+
+    // UnPay sends encrypted payload in the body
+    const encryptedData = req.body?.body || (req as any).rawBody
+    if (!encryptedData) {
+      console.error("[UnPay Webhook] No encrypted data received")
+      return res.status(400).json({ success: false, message: "No data received" })
+    }
+
+    // Decrypt the webhook payload
+    let webhookData: any
+    try {
+      const decryptedData = decryptAES(encryptedData)
+      webhookData = JSON.parse(decryptedData)
+      console.log("[UnPay Webhook] Decrypted payload:", webhookData)
+    } catch (err: any) {
+      console.error("[UnPay Webhook] Failed to decrypt/parse payload:", err.message)
+      return res.status(400).json({ success: false, message: "Invalid webhook data" })
+    }
+
+    // Extract transaction details
+    const { txnid, status, amount, upi_tr, message } = webhookData
+
+    if (!txnid) {
+      console.error("[UnPay Webhook] Missing transaction ID")
+      return res.status(400).json({ success: false, message: "Missing transaction ID" })
+    }
+
+    // Determine status mapping
+    let dbStatus: string
+    if (status === "success" || status === "SUCCESS") {
+      dbStatus = "completed"
+    } else if (status === "failed" || status === "FAILED") {
+      dbStatus = "failed"
+    } else {
+      dbStatus = "pending"
+    }
+
+    console.log(`[UnPay Webhook] Updating transaction ${txnid} to status: ${dbStatus}`)
+
+    // Update transaction in database
+    try {
+      const updateResult = await Transaction.findOneAndUpdate(
+        { orderId: txnid },
+        {
+          $set: {
+            status: dbStatus,
+            paymentId: upi_tr || "",
+            updatedAt: new Date(),
+            "notes.unpay_webhook": {
+              received_at: new Date(),
+              status,
+              amount,
+              upi_tr,
+              message,
+              raw_payload: webhookData,
+            },
+          },
+        },
+        { upsert: false, new: true }
+      )
+
+      if (!updateResult) {
+        console.warn(`[UnPay Webhook] Transaction ${txnid} not found in database`)
+        return res.status(404).json({ success: false, message: "Transaction not found" })
+      }
+
+      console.log(`[UnPay Webhook] Successfully updated transaction ${txnid}`)
+    } catch (err: any) {
+      console.error("[UnPay Webhook] Database update failed:", err.message)
+      return res.status(500).json({ success: false, message: "Database update failed" })
+    }
+
+    // Respond to UnPay
+    res.status(200).json({ success: true, message: "Webhook processed successfully" })
+  } catch (error: any) {
+    console.error("[UnPay Webhook] Unexpected error:", error)
+    res.status(500).json({ success: false, message: "Internal server error" })
   }
 })
 

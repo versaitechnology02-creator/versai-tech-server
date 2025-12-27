@@ -47,6 +47,23 @@ function encryptAES(data: string): string {
 }
 
 /**
+ * AES-256-CBC decryption (HEX, lowercase – UnPay compatible)
+ */
+function decryptAES(encryptedData: string): string {
+  validateAesConfig()
+
+  const decipher = crypto.createDecipheriv(
+    "aes-256-cbc",
+    Buffer.from(UNPAY_AES_KEY, "utf8"),
+    Buffer.from(UNPAY_IV, "utf8")
+  )
+
+  let decrypted = decipher.update(encryptedData, "hex", "utf8")
+  decrypted += decipher.final("utf8")
+  return decrypted
+}
+
+/**
  * Fetch server public IP from UnPay
  * Equivalent to:
  * curl https://unpay.in/tech/api/getip
@@ -116,10 +133,8 @@ export async function createUnpayTransaction(payload: {
 
   // Use production callback URL - UnPay requires whitelisted IP
   const callbackUrl = process.env.UNPAY_CALLBACK_URL || 
-                     process.env.CALLBACK_URL ||
-                     (process.env.CLIENT_URL && !process.env.CLIENT_URL.includes('localhost') 
-                       ? `${process.env.CLIENT_URL}/api/unpay/callback`
-                       : `https://payments.versaitechnology.com/api/unpay/callback`)
+                     process.env.SERVER_URL || 
+                     `https://payments.versaitechnology.com/api/payments/webhook/unpay`
 
   const requestBody = {
     partner_id: UNPAY_PARTNER_ID,
@@ -177,3 +192,5 @@ export async function createUnpayTransaction(payload: {
     )
   }
 }
+
+export { decryptAES, encryptAES }
