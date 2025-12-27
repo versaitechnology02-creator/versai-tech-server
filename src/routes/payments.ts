@@ -257,6 +257,40 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // This ensures money goes to the correct merchant account
     const selectedProvider = provider?.toLowerCase()
     
+    // Call SMEPay only if selected or if no provider specified (backward compatibility)
+    if (!selectedProvider || selectedProvider === "smepay") {
+      try {
+        const smepayResp = await createSmepayTransaction({
+          amount,
+          currency,
+          description,
+          customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
+          metadata: { razorpay_order_id: order.id },
+        })
+
+        // attach smepay info to in-memory transaction
+        ;(transaction as any).smepay = smepayResp
+
+        // update DB record with smepay info if present
+        try {
+          await Transaction.findOneAndUpdate(
+            { orderId: order.id },
+            { $set: { "notes.smepay": smepayResp, updatedAt: new Date() } },
+            { upsert: false },
+          )
+        } catch (err) {
+          console.error("Failed to update DB with SMEPay response:", err)
+        }
+      } catch (err: any) {
+        console.warn("SMEPay call failed (non-fatal):", err.message)
+        ;(transaction as any).smepay_error = err.message
+        // If SMEPay was specifically selected and failed, surface the error
+        if (selectedProvider === "smepay") {
+          ;(transaction as any).smepay_critical_error = err.message
+        }
+      }
+    }
+
     // Call UnPay only if selected or if no provider specified (backward compatibility)
     // Skip UnPay in local development to avoid IP whitelisting issues
     if ((!selectedProvider || selectedProvider === "unpay") && !process.env.CLIENT_URL?.includes('localhost')) {
@@ -302,7 +336,6 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     
     if (selectedProvider === "razorpay") {
       console.log("[Razorpay] Starting payment link/QR creation for Razorpay provider")
-      console.log("[Razorpay] Razorpay client available:", !!razorpay)
       console.log("[Razorpay] Environment keys:", {
         keyId: process.env.RAZORPAY_KEY_ID ? "set" : "not set",
         keySecret: process.env.RAZORPAY_KEY_SECRET ? "set" : "not set"
@@ -314,12 +347,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           const error = "Razorpay keys not configured"
           console.error("[Razorpay]", error)
           ;(transaction as any).razorpay_error = error
-        } else if (!razorpay) {
-          const error = "Razorpay client not initialized"
-          console.error("[Razorpay]", error)
-          ;(transaction as any).razorpay_error = error
         } else {
-          console.log("[Razorpay] Razorpay client methods:", Object.keys(razorpay))
+          // Use direct API calls instead of SDK methods for better compatibility
+          const axios = require('axios')
+          const auth = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')
+          
           // Create Payment Link
           const paymentLinkData = {
             amount: Math.round(amount * 100), // Convert to paise
@@ -344,8 +376,24 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           }
 
           console.log("[Razorpay] Creating payment link with data:", JSON.stringify(paymentLinkData, null, 2))
-          razorpayPaymentLink = await (razorpay as any).paymentLink.create(paymentLinkData)
-          console.log("[Razorpay] Payment link created successfully:", razorpayPaymentLink?.id, razorpayPaymentLink?.short_url)
+          
+          try {
+            const paymentLinkResponse = await axios.post('https://api.razorpay.com/v1/payment_links', paymentLinkData, {
+              headers: {
+                'Authorization': `Basic ${auth}`,
+                'Content-Type': 'application/json'
+              }
+            })
+            razorpayPaymentLink = paymentLinkResponse.data
+            console.log("[Razorpay] Payment link created successfully:", razorpayPaymentLink?.id, razorpayPaymentLink?.short_url)
+          } catch (linkErr: any) {
+            console.error("[Razorpay] Payment link creation failed:", {
+              message: linkErr.message,
+              status: linkErr.response?.status,
+              data: linkErr.response?.data
+            })
+            ;(transaction as any).razorpay_error = `Payment link creation failed: ${linkErr.message}`
+          }
 
           // Create QR Code only if payment link was created
           if (razorpayPaymentLink?.id) {
@@ -364,8 +412,25 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
             }
 
             console.log("[Razorpay] Creating QR code with data:", JSON.stringify(qrCodeData, null, 2))
-            razorpayQrCode = await (razorpay as any).qrCode.create(qrCodeData)
-            console.log("[Razorpay] QR code created successfully:", razorpayQrCode?.id, razorpayQrCode?.image_url)
+            
+            try {
+              const qrCodeResponse = await axios.post('https://api.razorpay.com/v1/qr_codes', qrCodeData, {
+                headers: {
+                  'Authorization': `Basic ${auth}`,
+                  'Content-Type': 'application/json'
+                }
+              })
+              razorpayQrCode = qrCodeResponse.data
+              console.log("[Razorpay] QR code created successfully:", razorpayQrCode?.id, razorpayQrCode?.image_url)
+            } catch (qrErr: any) {
+              console.error("[Razorpay] QR code creation failed:", {
+                message: qrErr.message,
+                status: qrErr.response?.status,
+                data: qrErr.response?.data
+              })
+              // Don't fail if QR code fails, payment link is still usable
+              ;(transaction as any).razorpay_qr_error = `QR code creation failed: ${qrErr.message}`
+            }
           }
 
           // Update DB with Razorpay payment link and QR code info
