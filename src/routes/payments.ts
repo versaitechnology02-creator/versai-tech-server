@@ -300,72 +300,99 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     let razorpayPaymentLink: any = null
     let razorpayQrCode: any = null
     
-    if (!selectedProvider || selectedProvider === "razorpay") {
+    if (selectedProvider === "razorpay") {
+      console.log("[Razorpay] Starting payment link/QR creation for Razorpay provider")
+      console.log("[Razorpay] Razorpay client available:", !!razorpay)
+      console.log("[Razorpay] Environment keys:", {
+        keyId: process.env.RAZORPAY_KEY_ID ? "set" : "not set",
+        keySecret: process.env.RAZORPAY_KEY_SECRET ? "set" : "not set"
+      })
+      
       try {
-        // Create Payment Link
-        const paymentLinkData = {
-          amount: Math.round(amount * 100), // Convert to paise
-          currency: currency || "INR",
-          description: description || "Payment",
-          customer: {
-            name: notes?.name || "Customer",
-            email: notes?.email || "",
-            contact: notes?.phone || "",
-          },
-          notify: {
-            sms: true,
-            email: true,
-          },
-          reminder_enable: true,
-          notes: {
-            ...notes,
-            razorpay_order_id: order.id,
-          },
-          callback_url: process.env.SERVER_URL ? `${process.env.SERVER_URL}/api/payments/webhook/razorpay` : "https://payments.versaitechnology.com/api/payments/webhook/razorpay",
-          callback_method: "post",
-        }
-
-        console.log("[Razorpay] Creating payment link with data:", paymentLinkData)
-        razorpayPaymentLink = await (razorpay as any).paymentLink.create(paymentLinkData)
-        console.log("[Razorpay] Payment link created:", razorpayPaymentLink)
-
-        // Create QR Code
-        const qrCodeData = {
-          type: "upi_qr",
-          name: `Payment for ${description || "Order"}`,
-          usage: "single_use",
-          fixed_amount: true,
-          payment_amount: Math.round(amount * 100),
-          description: description || "Payment",
-          notes: {
-            ...notes,
-            razorpay_order_id: order.id,
-            payment_link_id: razorpayPaymentLink.id,
-          },
-        }
-
-        console.log("[Razorpay] Creating QR code with data:", qrCodeData)
-        razorpayQrCode = await (razorpay as any).qrCode.create(qrCodeData)
-        console.log("[Razorpay] QR code created:", razorpayQrCode)
-
-        // Update DB with Razorpay payment link and QR code info
-        try {
-          await Transaction.findOneAndUpdate(
-            { orderId: order.id },
-            { 
-              $set: { 
-                "notes.razorpay_payment_link": razorpayPaymentLink,
-                "notes.razorpay_qr_code": razorpayQrCode,
-                updatedAt: new Date() 
-              } 
+        // Check if Razorpay is configured
+        if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+          const error = "Razorpay keys not configured"
+          console.error("[Razorpay]", error)
+          ;(transaction as any).razorpay_error = error
+        } else if (!razorpay) {
+          const error = "Razorpay client not initialized"
+          console.error("[Razorpay]", error)
+          ;(transaction as any).razorpay_error = error
+        } else {
+          console.log("[Razorpay] Razorpay client methods:", Object.keys(razorpay))
+          // Create Payment Link
+          const paymentLinkData = {
+            amount: Math.round(amount * 100), // Convert to paise
+            currency: currency || "INR",
+            description: description || "Payment",
+            customer: {
+              name: notes?.name || "Customer",
+              email: notes?.email || "",
+              contact: notes?.phone || "",
             },
-            { upsert: false },
-          )
-        } catch (err) {
-          console.error("Failed to update DB with Razorpay payment link/QR:", err)
+            notify: {
+              sms: true,
+              email: true,
+            },
+            reminder_enable: true,
+            notes: {
+              ...notes,
+              razorpay_order_id: order.id,
+            },
+            callback_url: process.env.SERVER_URL ? `${process.env.SERVER_URL}/api/payments/webhook/razorpay` : "https://payments.versaitechnology.com/api/payments/webhook/razorpay",
+            callback_method: "post",
+          }
+
+          console.log("[Razorpay] Creating payment link with data:", JSON.stringify(paymentLinkData, null, 2))
+          razorpayPaymentLink = await (razorpay as any).paymentLink.create(paymentLinkData)
+          console.log("[Razorpay] Payment link created successfully:", razorpayPaymentLink?.id, razorpayPaymentLink?.short_url)
+
+          // Create QR Code only if payment link was created
+          if (razorpayPaymentLink?.id) {
+            const qrCodeData = {
+              type: "upi_qr",
+              name: `Payment for ${description || "Order"}`,
+              usage: "single_use",
+              fixed_amount: true,
+              payment_amount: Math.round(amount * 100),
+              description: description || "Payment",
+              notes: {
+                ...notes,
+                razorpay_order_id: order.id,
+                payment_link_id: razorpayPaymentLink.id,
+              },
+            }
+
+            console.log("[Razorpay] Creating QR code with data:", JSON.stringify(qrCodeData, null, 2))
+            razorpayQrCode = await (razorpay as any).qrCode.create(qrCodeData)
+            console.log("[Razorpay] QR code created successfully:", razorpayQrCode?.id, razorpayQrCode?.image_url)
+          }
+
+          // Update DB with Razorpay payment link and QR code info
+          try {
+            await Transaction.findOneAndUpdate(
+              { orderId: order.id },
+              { 
+                $set: { 
+                  "notes.razorpay_payment_link": razorpayPaymentLink,
+                  "notes.razorpay_qr_code": razorpayQrCode,
+                  updatedAt: new Date() 
+                } 
+              },
+              { upsert: false },
+            )
+            console.log("[Razorpay] Database updated with payment link and QR code info")
+          } catch (err) {
+            console.error("[Razorpay] Failed to update DB with Razorpay payment link/QR:", err)
+          }
         }
       } catch (err: any) {
-        console.error("[Razorpay] Failed to create payment link/QR:", err.message)
+        console.error("[Razorpay] Failed to create payment link/QR:", {
+          message: err.message,
+          status: err.statusCode,
+          response: err.response?.data,
+          stack: err.stack
+        })
         // Don't fail the entire request if Razorpay payment link/QR creation fails
         ;(transaction as any).razorpay_error = err.message
       }
@@ -388,6 +415,27 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     // Razorpay: Use payment link short URL
     const razorpayLink = razorpayPaymentLink?.short_url || null
+
+    // Check for critical errors when specific provider is selected
+    if (selectedProvider === "smepay" && (transaction as any).smepay_critical_error) {
+      return res.status(400).json({
+        success: false,
+        message: `SMEPay error: ${(transaction as any).smepay_critical_error}`,
+      })
+    }
+    
+    if (selectedProvider === "unpay" && (transaction as any).unpay_critical_error) {
+      return res.status(400).json({
+        success: false,
+        message: `UnPay error: ${(transaction as any).unpay_critical_error}`,
+      })
+    }
+    
+    if (selectedProvider === "razorpay" && (transaction as any).razorpay_error) {
+      console.log("[Razorpay] Razorpay failed, but returning order info for checkout")
+      // Don't return error, return the order info so user can do checkout
+      // finalPaymentLink will be null, but order_id and key_id will be available for checkout
+    }
 
     // Return the payment link based on selected provider (normalized to lowercase)
     // If provider is specified, return only that provider's link
