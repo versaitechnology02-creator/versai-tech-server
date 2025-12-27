@@ -296,40 +296,78 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       ;(transaction as any).unpay_critical_error = "UnPay is not available in local development environment"
     }
 
-    // Call SMEPay only if selected or if no provider specified (backward compatibility)
-    // SMEPay is PRIMARY provider - prioritize it
-    if (!selectedProvider || selectedProvider === "smepay") {
+    // Call Razorpay Payment Link and QR Code creation if selected
+    let razorpayPaymentLink: any = null
+    let razorpayQrCode: any = null
+    
+    if (!selectedProvider || selectedProvider === "razorpay") {
       try {
-        const smepayResp = await createSmepayTransaction({
-          amount,
-          currency,
-          description,
-          customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
-          metadata: { razorpay_order_id: order.id },
-        })
+        // Create Payment Link
+        const paymentLinkData = {
+          amount: Math.round(amount * 100), // Convert to paise
+          currency: currency || "INR",
+          description: description || "Payment",
+          customer: {
+            name: notes?.name || "Customer",
+            email: notes?.email || "",
+            contact: notes?.phone || "",
+          },
+          notify: {
+            sms: true,
+            email: true,
+          },
+          reminder_enable: true,
+          notes: {
+            ...notes,
+            razorpay_order_id: order.id,
+          },
+          callback_url: process.env.SERVER_URL ? `${process.env.SERVER_URL}/api/payments/webhook/razorpay` : "https://payments.versaitechnology.com/api/payments/webhook/razorpay",
+          callback_method: "post",
+        }
 
-        ;(transaction as any).smepay = smepayResp
+        console.log("[Razorpay] Creating payment link with data:", paymentLinkData)
+        razorpayPaymentLink = await (razorpay as any).paymentLink.create(paymentLinkData)
+        console.log("[Razorpay] Payment link created:", razorpayPaymentLink)
 
+        // Create QR Code
+        const qrCodeData = {
+          type: "upi_qr",
+          name: `Payment for ${description || "Order"}`,
+          usage: "single_use",
+          fixed_amount: true,
+          payment_amount: Math.round(amount * 100),
+          description: description || "Payment",
+          notes: {
+            ...notes,
+            razorpay_order_id: order.id,
+            payment_link_id: razorpayPaymentLink.id,
+          },
+        }
+
+        console.log("[Razorpay] Creating QR code with data:", qrCodeData)
+        razorpayQrCode = await (razorpay as any).qrCode.create(qrCodeData)
+        console.log("[Razorpay] QR code created:", razorpayQrCode)
+
+        // Update DB with Razorpay payment link and QR code info
         try {
           await Transaction.findOneAndUpdate(
             { orderId: order.id },
-            { $set: { "notes.smepay": smepayResp, updatedAt: new Date() } },
+            { 
+              $set: { 
+                "notes.razorpay_payment_link": razorpayPaymentLink,
+                "notes.razorpay_qr_code": razorpayQrCode,
+                updatedAt: new Date() 
+              } 
+            },
             { upsert: false },
           )
         } catch (err) {
-          console.error("Failed to update DB with Smepay response:", err)
+          console.error("Failed to update DB with Razorpay payment link/QR:", err)
         }
       } catch (err: any) {
-        console.warn("Smepay call failed (non-fatal):", err.message)
-        ;(transaction as any).smepay_error = err.message
-        // Surface critical errors to client
-        if (err.message.includes("wallet balance") || err.message.includes("auth failed")) {
-          ;(transaction as any).smepay_critical_error = err.message
-        }
-        // If SMEPay was specifically selected and failed, surface the error
-        if (selectedProvider === "smepay") {
-          ;(transaction as any).smepay_critical_error = err.message
-        }
+        console.error("[Razorpay] Failed to create payment link/QR:", err.message)
+        // Don't fail the entire request if Razorpay payment link/QR creation fails
+        ;(transaction as any).razorpay_error = err.message
       }
     }
 
@@ -348,6 +386,9 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // CRITICAL: Use ONLY payment_url for SMEPay (primary provider requirement)
     const smepayLink = (smepayPaymentUrl && typeof smepayPaymentUrl === 'string') ? smepayPaymentUrl : null
 
+    // Razorpay: Use payment link short URL
+    const razorpayLink = razorpayPaymentLink?.short_url || null
+
     // Return the payment link based on selected provider (normalized to lowercase)
     // If provider is specified, return only that provider's link
     let finalPaymentLink: string | null = null
@@ -360,12 +401,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       finalPaymentLink = smepayLink
     } else if (normalizedProvider === "unpay") {
       finalPaymentLink = unpayLink
-    } /* else if (normalizedProvider === "razorpay") {
-      // Razorpay is checkout-only, not for direct links or QR
-      finalPaymentLink = null
-    } */ else {
-      // If no provider specified, fallback priority: SMEPay → UnPay
-      finalPaymentLink = smepayLink || unpayLink
+    } else if (normalizedProvider === "razorpay") {
+      finalPaymentLink = razorpayLink
+    } else {
+      // If no provider specified, fallback priority: SMEPay → UnPay → Razorpay
+      finalPaymentLink = smepayLink || unpayLink || razorpayLink
     }
 
     // Log payment link for debugging
@@ -380,6 +420,23 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         key_id: process.env.RAZORPAY_KEY_ID,
         // Return SINGLE payment_link field (null if unavailable)
         final_payment_link: finalPaymentLink,
+        // Include QR code data if available
+        qr_code: razorpayQrCode ? {
+          id: razorpayQrCode.id,
+          image_url: razorpayQrCode.image_url,
+          upi_id: razorpayQrCode.upi_id,
+          name: razorpayQrCode.name,
+        } : null,
+        // Provider-specific data for debugging
+        provider_data: {
+          razorpay: razorpayPaymentLink ? {
+            payment_link_id: razorpayPaymentLink.id,
+            short_url: razorpayPaymentLink.short_url,
+            status: razorpayPaymentLink.status,
+          } : null,
+          smepay: (transaction as any).smepay || null,
+          unpay: (transaction as any).unpay || null,
+        },
       },
     })
   } catch (error: any) {
@@ -498,6 +555,97 @@ router.get("/transactions", (req: Request, res: Response) => {
       success: false,
       message: error.message,
     })
+  }
+})
+
+// Razorpay Webhook Handler
+router.post("/webhook/razorpay", async (req: Request, res: Response) => {
+  try {
+    console.log("[Razorpay Webhook] Received webhook:", {
+      headers: req.headers,
+      body: req.body,
+      query: req.query,
+    })
+
+    // Razorpay sends webhook data in the body
+    const webhookData = req.body
+
+    if (!webhookData) {
+      console.error("[Razorpay Webhook] No webhook data received")
+      return res.status(400).json({ success: false, message: "No data received" })
+    }
+
+    // Extract event and payment data
+    const { event, payment } = webhookData
+
+    if (!event || !payment) {
+      console.error("[Razorpay Webhook] Missing event or payment data")
+      return res.status(400).json({ success: false, message: "Invalid webhook data" })
+    }
+
+    // Only process payment.captured events
+    if (event !== "payment.captured") {
+      console.log(`[Razorpay Webhook] Ignoring event: ${event}`)
+      return res.status(200).json({ success: true, message: "Event ignored" })
+    }
+
+    const { order_id, id: payment_id, status, amount } = payment
+
+    if (!order_id) {
+      console.error("[Razorpay Webhook] Missing order_id")
+      return res.status(400).json({ success: false, message: "Missing order_id" })
+    }
+
+    // Determine status mapping
+    let dbStatus: string
+    if (status === "captured") {
+      dbStatus = "completed"
+    } else if (status === "failed") {
+      dbStatus = "failed"
+    } else {
+      dbStatus = "pending"
+    }
+
+    console.log(`[Razorpay Webhook] Updating transaction ${order_id} to status: ${dbStatus}`)
+
+    // Update transaction in database
+    try {
+      const updateResult = await Transaction.findOneAndUpdate(
+        { orderId: order_id },
+        {
+          $set: {
+            paymentId: payment_id,
+            status: dbStatus,
+            updatedAt: new Date(),
+            "notes.razorpay_webhook": {
+              received_at: new Date(),
+              event,
+              payment_id,
+              status,
+              amount,
+              raw_payload: webhookData,
+            },
+          },
+        },
+        { upsert: false, new: true }
+      )
+
+      if (!updateResult) {
+        console.warn(`[Razorpay Webhook] Transaction ${order_id} not found in database`)
+        return res.status(404).json({ success: false, message: "Transaction not found" })
+      }
+
+      console.log(`[Razorpay Webhook] Successfully updated transaction ${order_id}`)
+    } catch (err: any) {
+      console.error("[Razorpay Webhook] Database update failed:", err.message)
+      return res.status(500).json({ success: false, message: "Database update failed" })
+    }
+
+    // Respond to Razorpay
+    res.status(200).json({ success: true, message: "Webhook processed successfully" })
+  } catch (error: any) {
+    console.error("[Razorpay Webhook] Unexpected error:", error)
+    res.status(500).json({ success: false, message: "Internal server error" })
   }
 })
 
