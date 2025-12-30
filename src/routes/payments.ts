@@ -295,8 +295,33 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     }
 
     // Call UnPay only if selected or if no provider specified (backward compatibility)
-    // Skip UnPay in local development to avoid IP whitelisting issues
-    if ((!selectedProvider || selectedProvider === "unpay") && !process.env.CLIENT_URL?.includes('localhost')) {
+    // Determine if this environment should allow UnPay (prefer NODE_ENV, but also accept SERVER_URL)
+    const isProdEnv = process.env.NODE_ENV === 'production' || (process.env.SERVER_URL && process.env.SERVER_URL.includes('payments.versaitechnology.com'))
+
+    // Safety: if CLIENT_URL explicitly contains localhost, treat as non-production
+    const clientUrlIsLocal = !!process.env.CLIENT_URL && process.env.CLIENT_URL.includes('localhost')
+
+    const allowUnPay = isProdEnv && !clientUrlIsLocal
+
+    // Extract client IP for UnPay (x-forwarded-for -> socket.remoteAddress -> fallback server public IP)
+    const xff = (req.headers['x-forwarded-for'] as string) || (req.headers['X-Forwarded-For'] as unknown as string)
+    let detectedClientIp: string | undefined = undefined
+    if (xff && typeof xff === 'string') {
+      detectedClientIp = xff.split(',')[0].trim()
+    }
+    if (!detectedClientIp) {
+      detectedClientIp = req.socket?.remoteAddress || undefined
+    }
+    if (detectedClientIp && detectedClientIp.startsWith('::ffff:')) {
+      detectedClientIp = detectedClientIp.replace('::ffff:', '')
+    }
+    if (!detectedClientIp) {
+      detectedClientIp = process.env.SERVER_PUBLIC_IP || '72.60.201.247'
+    }
+
+    console.log('[UnPay] Detected client IP:', detectedClientIp)
+
+    if ((!selectedProvider || selectedProvider === "unpay") && allowUnPay) {
       try {
         const unpayResp = await createUnpayTransaction({
           amount,
@@ -304,6 +329,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           description,
           customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
           metadata: { razorpay_order_id: order.id },
+          client_ip: detectedClientIp,
         })
 
         // attach unpay info to in-memory transaction
@@ -327,8 +353,8 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           ;(transaction as any).unpay_critical_error = err.message
         }
       }
-    } else if (selectedProvider === "unpay" && process.env.CLIENT_URL?.includes('localhost')) {
-      // If UnPay is specifically selected but we're in local dev, show error
+    } else if (selectedProvider === "unpay" && !allowUnPay) {
+      // If UnPay is specifically selected but we're not in production, show error
       ;(transaction as any).unpay_error = "UnPay is not available in local development environment"
       ;(transaction as any).unpay_critical_error = "UnPay is not available in local development environment"
     }

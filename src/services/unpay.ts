@@ -111,6 +111,7 @@ export async function createUnpayTransaction(payload: {
   description?: string
   customer?: { name?: string; email?: string; phone?: string }
   metadata?: Record<string, any>
+  client_ip?: string
 }) {
   console.log("[UnPay] Creating transaction with payload:", payload)
 
@@ -136,12 +137,19 @@ export async function createUnpayTransaction(payload: {
                      process.env.SERVER_URL || 
                      `https://payments.versaitechnology.com/api/payments/webhook/unpay`
 
-  const requestBody = {
+  const requestBody: any = {
     partner_id: UNPAY_PARTNER_ID,
     txnid: orderId,
     amount: String(amount),
     currency: payload.currency || "INR",
     callback: callbackUrl,
+  }
+
+  // Attach client IP if provided (UnPay requires customer IP / ip_address)
+  if (payload.client_ip) {
+    requestBody.customer_ip = payload.client_ip
+    // Also include ip_address for compatibility if UnPay expects that key
+    requestBody.ip_address = payload.client_ip
   }
 
   console.log(
