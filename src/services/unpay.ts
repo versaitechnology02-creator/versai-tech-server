@@ -151,7 +151,7 @@ export async function createUnpayTransaction(payload: {
     amount: String(amount),
     currency: payload.currency || "INR",
     callback: callbackUrl,
-    client_ip: serverIp,
+    ip: serverIp,
   }
 
   console.log(
@@ -164,9 +164,11 @@ export async function createUnpayTransaction(payload: {
   console.log("[UnPay] Encrypted request body:", encryptedBody)
 
   try {
-    const resp = await unpayClient.post("/payin/order/create", {
-      body: encryptedBody,
-    })
+    const resp = await unpayClient.post(
+        "/payin/order/create",
+        encryptedBody
+      )
+
 
     console.log(
       "[UnPay] Create payment response:",
@@ -209,7 +211,6 @@ export async function createUnpayTransaction(payload: {
 export async function createUnpayDynamicQR(payload: {
   amount: number
   apitxnid: string
-  webhook?: string
 }) {
   console.log("[UnPay Dynamic QR] Payload:", payload)
 
@@ -237,7 +238,7 @@ export async function createUnpayDynamicQR(payload: {
     apitxnid: payload.apitxnid,
     amount: amount,
     webhook: webhookUrl,
-    client_ip: serverIp,
+    ip: serverIp,
   }
 
   console.log(
@@ -250,9 +251,10 @@ export async function createUnpayDynamicQR(payload: {
   console.log("[UnPay Dynamic QR] Encrypted body:", encryptedBody)
 
   try {
-    const resp = await unpayClient.post("/next/upi/request/qr", {
-      body: encryptedBody,
-    })
+    const resp = await unpayClient.post(
+        "/next/upi/request/qr",
+        encryptedBody
+      )
 
     console.log(
       "[UnPay Dynamic QR] Response:",

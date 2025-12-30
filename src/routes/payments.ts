@@ -303,30 +303,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     const allowUnPay = isProdEnv && !clientUrlIsLocal
 
-    // Extract client IP for UnPay (x-forwarded-for -> socket.remoteAddress -> fallback server public IP)
-    const xff = (req.headers['x-forwarded-for'] as string) || (req.headers['X-Forwarded-For'] as unknown as string)
-    let detectedClientIp: string | undefined = undefined
-    if (xff && typeof xff === 'string') {
-      detectedClientIp = xff.split(',')[0].trim()
-    }
-    if (!detectedClientIp) {
-      detectedClientIp = req.socket?.remoteAddress || undefined
-    }
-    if (detectedClientIp && detectedClientIp.startsWith('::ffff:')) {
-      detectedClientIp = detectedClientIp.replace('::ffff:', '')
-    }
-    if (!detectedClientIp) {
-      detectedClientIp = process.env.SERVER_PUBLIC_IP || '72.60.201.247'
-    }
-
-    console.log('[UnPay] Detected client IP:', detectedClientIp)
-
     if ((!selectedProvider || selectedProvider === "unpay") && allowUnPay) {
       try {
         const unpayResp = await createUnpayDynamicQR({
           amount,
           apitxnid: order.id,
-          webhook: `https://payments.versaitechnology.com/api/payments/webhook/unpay`,
         })
 
         // attach unpay info to in-memory transaction
