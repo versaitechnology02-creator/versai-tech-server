@@ -64,20 +64,40 @@ export function decryptAES(encryptedData: string): string {
 }
 
 // ======================
+// Clean IP Utility
+// ======================
+function cleanIp(ip: string): string {
+  if (!ip) return ''
+  // Remove ::ffff: prefix for IPv4 mapped to IPv6
+  ip = ip.replace(/^::ffff:/, '')
+  // Take first IP if comma-separated
+  ip = ip.split(',')[0].trim()
+  return ip
+}
+
+// ======================
 // Get Server IP
 // ======================
 export async function getUnpayIp(): Promise<string> {
+  let ip = process.env.SERVER_PUBLIC_IP
+  if (ip) {
+    ip = cleanIp(ip)
+    if (net.isIP(ip) === 4) {
+      console.log("[UnPay] Using IP from env:", ip)
+      return ip
+    }
+  }
+
+  // Fallback to fetch public IP
   try {
     console.log("[UnPay] Fetching server public IP...")
-
     const resp = await axios.get('https://api.ipify.org?format=json')
-    const ip = resp.data.ip
-
-    if (!ip || !net.isIP(ip)) {
+    ip = resp.data.ip
+    ip = cleanIp(ip)
+    if (!ip || net.isIP(ip) !== 4) {
       throw new Error("Invalid IP fetched")
     }
-
-    console.log("[UnPay] Server public IP:", ip)
+    console.log("[UnPay] Using fetched IP:", ip)
     return ip
   } catch (err: any) {
     console.error("[UnPay] Get IP error (FULL):", {
@@ -85,7 +105,7 @@ export async function getUnpayIp(): Promise<string> {
       status: err.response?.status,
       data: err.response?.data,
     })
-    throw new Error("Unable to fetch server public IP")
+    throw new Error("Unable to determine valid server IP")
   }
 }
 
@@ -122,7 +142,7 @@ export async function createUnpayTransaction(payload: {
                      process.env.SERVER_URL || 
                      `https://payments.versaitechnology.com/api/payments/webhook/unpay`
 
-  // ✅ Fetch actual public server IP (replace client IP)
+  // ✅ Get valid server IP
   const serverIp = await getUnpayIp()
 
   const requestBody: any = {
@@ -131,10 +151,8 @@ export async function createUnpayTransaction(payload: {
     amount: String(amount),
     currency: payload.currency || "INR",
     callback: callbackUrl,
-    ip: serverIp, // Use server IP instead of client IP
+    client_ip: serverIp,
   }
-
-  // Note: Removed client_ip usage, always use server IP for UnPay whitelisting
 
   console.log(
     "[UnPay] Request body (before encryption):",
@@ -206,7 +224,7 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Amount must be a positive integer (INR)")
   }
 
-  // ✅ Fetch actual public server IP
+  // ✅ Get valid server IP
   const serverIp = await getUnpayIp()
 
   const webhookUrl = process.env.UNPAY_WEBHOOK_URL
@@ -219,7 +237,7 @@ export async function createUnpayDynamicQR(payload: {
     apitxnid: payload.apitxnid,
     amount: amount,
     webhook: webhookUrl,
-    ip: serverIp,
+    client_ip: serverIp,
   }
 
   console.log(
