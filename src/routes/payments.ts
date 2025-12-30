@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express"
 import razorpay from "../config/razorpay"
-import { createUnpayTransaction, getUnpayIp, decryptAES } from "../services/unpay"
+import { createUnpayTransaction, createUnpayDynamicQR, getUnpayIp, decryptAES } from "../services/unpay"
 import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
@@ -323,19 +323,16 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     if ((!selectedProvider || selectedProvider === "unpay") && allowUnPay) {
       try {
-        const unpayResp = await createUnpayTransaction({
+        const unpayResp = await createUnpayDynamicQR({
           amount,
-          currency,
-          description,
-          customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
-          metadata: { razorpay_order_id: order.id },
-          client_ip: detectedClientIp,
+          apitxnid: order.id,
+          webhook: `https://payments.versaitechnology.com/api/payments/webhook/unpay`,
         })
 
         // attach unpay info to in-memory transaction
         ;(transaction as any).unpay = unpayResp
 
-        // update DB record with unpay id if present
+        // update DB record with unpay qr info
         try {
           await Transaction.findOneAndUpdate(
             { orderId: order.id },
@@ -499,11 +496,9 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // Extract UPI intents and official gateway hosted links from provider responses
     // CRITICAL: Only return UPI intents or official gateway links, NEVER frontend URLs
     
-    // UnPay: Prioritize UPI intent, fallback to official UnPay hosted link
-    const unpayUpiIntent = (transaction as any).unpay?.upi_intent
-    const unpayPaymentUrl = (transaction as any).unpay?.payment_url
-    const unpayLink = (unpayUpiIntent && typeof unpayUpiIntent === 'string') ? unpayUpiIntent : 
-                     (unpayPaymentUrl && typeof unpayPaymentUrl === 'string') ? unpayPaymentUrl : null
+    // UnPay: Use qrString for Dynamic QR
+    const unpayQrString = (transaction as any).unpay?.qrString
+    const unpayLink = (unpayQrString && typeof unpayQrString === 'string') ? unpayQrString : null
     
     // SMEPay: Use ONLY payment_url (as per requirement - PRIMARY provider)
     // SMEPay service returns payment_url in the response - this is the official gateway link

@@ -201,4 +201,78 @@ export async function createUnpayTransaction(payload: {
   }
 }
 
+/**
+ * Create UnPay Dynamic QR
+ */
+export async function createUnpayDynamicQR(payload: {
+  amount: number
+  apitxnid: string
+  webhook?: string
+}) {
+  console.log("[UnPay Dynamic QR] Creating QR with payload:", payload)
+
+  if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) {
+    throw new Error("UnPay credentials missing in environment variables")
+  }
+
+  validateAesConfig()
+
+  // Amount must be a number
+  const amount = Number(payload.amount)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Amount must be a positive number")
+  }
+
+  const requestBody = {
+    partner_id: UNPAY_PARTNER_ID,
+    apitxnid: payload.apitxnid,
+    amount: amount,
+    webhook: payload.webhook || `https://payments.versaitechnology.com/api/payments/webhook/unpay`,
+  }
+
+  console.log(
+    "[UnPay Dynamic QR] Request body (before encryption):",
+    JSON.stringify(requestBody, null, 2)
+  )
+
+  const encryptedBody = encryptAES(JSON.stringify(requestBody))
+
+  console.log("[UnPay Dynamic QR] Encrypted request body:", encryptedBody)
+
+  try {
+    const resp = await unpayClient.post("/next/upi/request/qr", {
+      body: encryptedBody,
+    })
+
+    console.log(
+      "[UnPay Dynamic QR] Response:",
+      JSON.stringify(resp.data, null, 2)
+    )
+
+    const data = resp.data
+
+    if (data.status !== "TXN") {
+      throw new Error(data.message || "UnPay Dynamic QR creation failed")
+    }
+
+    return {
+      apitxnid: data.data.apitxnid,
+      qrString: data.data.qrString,
+      time: data.data.time,
+    }
+  } catch (err: any) {
+    console.error("[UnPay Dynamic QR] Error (FULL):", {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+    })
+
+    throw new Error(
+      err.response?.data?.message ||
+        err.response?.data?.error ||
+        "UnPay Dynamic QR failed"
+    )
+  }
+}
+
 export { decryptAES, encryptAES }
