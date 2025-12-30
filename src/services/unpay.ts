@@ -66,7 +66,7 @@ export function decryptAES(encryptedData: string): string {
 // ======================
 // Clean IP Utility
 // ======================
-function cleanIp(ip: string): string {
+function cleanIp(ip: string | undefined): string {
   if (!ip) return ''
   // Remove ::ffff: prefix for IPv4 mapped to IPv6
   ip = ip.replace(/^::ffff:/, '')
