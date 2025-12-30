@@ -131,18 +131,19 @@ export async function createUnpayTransaction(payload: {
                      process.env.SERVER_URL || 
                      `https://payments.versaitechnology.com/api/payments/webhook/unpay`
 
+  // ✅ Fetch actual public server IP (replace client IP)
+  const serverIp = await getUnpayIp()
+
   const requestBody: any = {
     partner_id: UNPAY_PARTNER_ID,
     txnid: orderId,
     amount: String(amount),
     currency: payload.currency || "INR",
     callback: callbackUrl,
+    ip: serverIp, // Use server IP instead of client IP
   }
 
-  if (payload.client_ip) {
-    requestBody.customer_ip = payload.client_ip
-    requestBody.ip_address = payload.client_ip
-  }
+  // Note: Removed client_ip usage, always use server IP for UnPay whitelisting
 
   console.log(
     "[UnPay] Request body (before encryption):",
@@ -214,6 +215,9 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Amount must be a positive integer (INR)")
   }
 
+  // ✅ Fetch actual public server IP
+  const serverIp = await getUnpayIp()
+
   const requestBody = {
     partner_id: UNPAY_PARTNER_ID,
     apitxnid: payload.apitxnid,
@@ -221,7 +225,7 @@ export async function createUnpayDynamicQR(payload: {
     webhook:
       payload.webhook ||
       "https://payments.versaitechnology.com/api/payments/webhook/unpay",
-    ip: "72.60.201.247",
+    ip: serverIp, // dynamic IP
   }
 
   console.log(
@@ -238,7 +242,7 @@ export async function createUnpayDynamicQR(payload: {
       body: encryptedBody,
     }, {
       headers: {
-        'x-forwarded-for': '72.60.201.247',
+        'x-forwarded-for': serverIp, // dynamic header
       },
     })
 
@@ -253,7 +257,7 @@ export async function createUnpayDynamicQR(payload: {
 
     return {
       apitxnid: resp.data.data.apitxnid,
-      qrString: resp.data.data.qrString, // Use this to render QR
+      qrString: resp.data.data.qrString,
       time: resp.data.data.time,
     }
   } catch (err: any) {
