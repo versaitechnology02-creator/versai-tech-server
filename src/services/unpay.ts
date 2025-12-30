@@ -68,24 +68,16 @@ export function decryptAES(encryptedData: string): string {
 // ======================
 export async function getUnpayIp(): Promise<string> {
   try {
-    console.log("[UnPay] Fetching server IP...")
+    console.log("[UnPay] Fetching server public IP...")
 
-    const resp = await unpayClient.get("/getip")
-
-    console.log("[UnPay] Raw IP response:", resp.data)
-
-    const ip =
-      resp.data?.ip ||
-      resp.data?.server_ip ||
-      resp.data?.data?.ip ||
-      resp.data?.data?.server_ip
+    const resp = await axios.get('https://api.ipify.org?format=json')
+    const ip = resp.data.ip
 
     if (!ip || !net.isIP(ip)) {
-      console.warn("[UnPay] IP not available or invalid, proceeding without IP whitelisting")
-      return "127.0.0.1"
+      throw new Error("Invalid IP fetched")
     }
 
-    console.log("[UnPay] Server IP:", ip)
+    console.log("[UnPay] Server public IP:", ip)
     return ip
   } catch (err: any) {
     console.error("[UnPay] Get IP error (FULL):", {
@@ -93,8 +85,7 @@ export async function getUnpayIp(): Promise<string> {
       status: err.response?.status,
       data: err.response?.data,
     })
-    console.warn("[UnPay] Failed to get IP, using fallback")
-    return "127.0.0.1"
+    throw new Error("Unable to fetch server public IP")
   }
 }
 
@@ -218,14 +209,17 @@ export async function createUnpayDynamicQR(payload: {
   // ✅ Fetch actual public server IP
   const serverIp = await getUnpayIp()
 
+  const webhookUrl = process.env.UNPAY_WEBHOOK_URL
+  if (!webhookUrl) {
+    throw new Error("UNPAY_WEBHOOK_URL environment variable is required")
+  }
+
   const requestBody = {
     partner_id: UNPAY_PARTNER_ID,
     apitxnid: payload.apitxnid,
     amount: amount,
-    webhook:
-      payload.webhook ||
-      "https://payments.versaitechnology.com/api/payments/webhook/unpay",
-    ip: serverIp, // dynamic IP
+    webhook: webhookUrl,
+    ip: serverIp,
   }
 
   console.log(
@@ -240,10 +234,6 @@ export async function createUnpayDynamicQR(payload: {
   try {
     const resp = await unpayClient.post("/next/upi/request/qr", {
       body: encryptedBody,
-    }, {
-      headers: {
-        'x-forwarded-for': serverIp, // dynamic header
-      },
     })
 
     console.log(
