@@ -15,24 +15,23 @@ const app = express()
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
 
 /* =========================================================
-   TRUST PROXY (IMPORTANT FOR PAYMENTS & IP)
+   TRUST PROXY (IMPORTANT)
 ========================================================= */
 app.set('trust proxy', true)
 
 /* =========================================================
-   CORS CONFIG (PRODUCTION-GRADE, NO MORE ERRORS)
+   CORS CONFIG (BULLETPROOF)
 ========================================================= */
 
-// Allow all subdomains of versaitechnology.com
 const ALLOWED_DOMAIN = 'versaitechnology.com'
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow server-to-server, webhooks, Postman, curl
+      // Allow server-to-server, webhooks, Postman
       if (!origin) return callback(null, true)
 
-      // Allow localhost (dev)
+      // Allow localhost
       if (origin.startsWith('http://localhost')) {
         return callback(null, true)
       }
@@ -42,17 +41,14 @@ app.use(
         return callback(null, true)
       }
 
-      console.error('❌ Blocked by CORS:', origin)
-      callback(new Error(`Not allowed by CORS: ${origin}`))
+      // ❗ IMPORTANT: DO NOT THROW ERROR
+      return callback(null, false)
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   })
 )
-
-// Handle preflight requests
-app.options('*', cors())
 
 /* =========================================================
    MIDDLEWARES
@@ -66,13 +62,14 @@ app.use(express.json())
 
 const mongoUri = process.env.MONGODB_URI
 if (!mongoUri) {
-  throw new Error('❌ MONGODB_URI is not defined in environment variables')
+  console.error('❌ MONGODB_URI missing')
+  process.exit(1)
 }
 
 connectDB(mongoUri)
-  .then(() => console.log('✅ MongoDB connected'))
+  .then(() => console.log('MongoDB connected'))
   .catch((err) => {
-    console.error('❌ MongoDB connection failed:', err)
+    console.error('MongoDB connection failed:', err)
     process.exit(1)
   })
 
