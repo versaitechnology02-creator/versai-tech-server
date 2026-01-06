@@ -55,7 +55,7 @@ export async function createSmepayTransaction(payload: {
     client_id: SMEPAY_CLIENT_ID,
     amount: String(payload.amount || 0),
     order_id: payload.metadata?.razorpay_order_id || payload.metadata?.order_id || `smepay_${Date.now()}`,
-    callback_url: process.env.CLIENT_URL || process.env.NEXT_PUBLIC_CLIENT_URL || SMEPAY_BASE_URL,
+    callback_url: process.env.SERVER_URL ? `${process.env.SERVER_URL}/api/payments/webhook/smepay` : SMEPAY_BASE_URL,
     transaction_type: "payin", // Explicitly specify this is a Pay-In operation
     customer_details: {
       email: payload.customer?.email,

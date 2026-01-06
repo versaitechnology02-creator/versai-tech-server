@@ -1,25 +1,31 @@
 import axios from "axios"
-import unpayClient, {
+import crypto from "crypto"
+import net from "net"
+
+// Config import
+import {
   UNPAY_PARTNER_ID,
   UNPAY_API_KEY,
   UNPAY_AES_KEY,
   UNPAY_IV,
 } from "../config/unpay"
-import crypto from "crypto"
-import net from "net"
 
-/**
- * Public client for UnPay endpoints that DO NOT require api-key
- * (Important for /getip)
- */
-const unpayPublicClient = axios.create({
+// ======================
+// Axios client
+// ======================
+const unpayClient = axios.create({
   baseURL: "https://unpay.in/tech/api",
   timeout: 15000,
+  headers: {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    "api-key": UNPAY_API_KEY,
+  },
 })
 
-/**
- * Validate AES credentials at startup
- */
+// ======================
+// AES Encryption / Decryption
+// ======================
 function validateAesConfig() {
   if (!UNPAY_AES_KEY || UNPAY_AES_KEY.length !== 32) {
     throw new Error("UNPAY_AES_KEY must be exactly 32 characters")
@@ -29,10 +35,7 @@ function validateAesConfig() {
   }
 }
 
-/**
- * AES-256-CBC encryption (HEX, lowercase – UnPay compatible)
- */
-function encryptAES(data: string): string {
+export function encryptAES(data: string): string {
   validateAesConfig()
 
   const cipher = crypto.createCipheriv(
@@ -43,35 +46,58 @@ function encryptAES(data: string): string {
 
   let encrypted = cipher.update(data, "utf8", "hex")
   encrypted += cipher.final("hex")
-  return encrypted // ❗ DO NOT uppercase unless UnPay explicitly says so
+  return encrypted
 }
 
-/**
- * Fetch server public IP from UnPay
- * Equivalent to:
- * curl https://unpay.in/tech/api/getip
- */
+export function decryptAES(encryptedData: string): string {
+  validateAesConfig()
+
+  const decipher = crypto.createDecipheriv(
+    "aes-256-cbc",
+    Buffer.from(UNPAY_AES_KEY, "utf8"),
+    Buffer.from(UNPAY_IV, "utf8")
+  )
+
+  let decrypted = decipher.update(encryptedData, "hex", "utf8")
+  decrypted += decipher.final("utf8")
+  return decrypted
+}
+
+// ======================
+// Clean IP Utility
+// ======================
+function cleanIp(ip: string | undefined): string {
+  if (!ip) return ''
+  // Remove ::ffff: prefix for IPv4 mapped to IPv6
+  ip = ip.replace(/^::ffff:/, '')
+  // Take first IP if comma-separated
+  ip = ip.split(',')[0].trim()
+  return ip
+}
+
+// ======================
+// Get Server IP
+// ======================
 export async function getUnpayIp(): Promise<string> {
-  try {
-    console.log("[UnPay] Fetching server IP...")
-
-    const resp = await unpayPublicClient.get("/getip")
-
-    console.log("[UnPay] Raw IP response:", resp.data)
-
-    const ip =
-      resp.data?.ip ||
-      resp.data?.server_ip ||
-      resp.data?.data?.ip ||
-      resp.data?.data?.server_ip
-
-    if (!ip || !net.isIP(ip)) {
-      throw new Error(
-        `Invalid IP received from UnPay: ${JSON.stringify(resp.data)}`
-      )
+  let ip = process.env.SERVER_PUBLIC_IP
+  if (ip) {
+    ip = cleanIp(ip)
+    if (net.isIP(ip) === 4) {
+      console.log("[UnPay] Using IP from env:", ip)
+      return ip
     }
+  }
 
-    console.log("[UnPay] Server IP:", ip)
+  // Fallback to fetch public IP
+  try {
+    console.log("[UnPay] Fetching server public IP...")
+    const resp = await axios.get('https://api.ipify.org?format=json')
+    ip = resp.data.ip
+    ip = cleanIp(ip)
+    if (!ip || net.isIP(ip) !== 4) {
+      throw new Error("Invalid IP fetched")
+    }
+    console.log("[UnPay] Using fetched IP:", ip)
     return ip
   } catch (err: any) {
     console.error("[UnPay] Get IP error (FULL):", {
@@ -79,19 +105,20 @@ export async function getUnpayIp(): Promise<string> {
       status: err.response?.status,
       data: err.response?.data,
     })
-    throw new Error("Failed to get UnPay server IP")
+    throw new Error("Unable to determine valid server IP")
   }
 }
 
-/**
- * Create UnPay Pay-In transaction
- */
+// ======================
+// Create Pay-In Transaction
+// ======================
 export async function createUnpayTransaction(payload: {
   amount: number
   currency?: string
   description?: string
   customer?: { name?: string; email?: string; phone?: string }
   metadata?: Record<string, any>
+  client_ip?: string
 }) {
   console.log("[UnPay] Creating transaction with payload:", payload)
 
@@ -101,7 +128,6 @@ export async function createUnpayTransaction(payload: {
 
   validateAesConfig()
 
-  // Amount must be INTEGER rupees
   const amount = Number(payload.amount)
   if (!Number.isInteger(amount) || amount <= 0) {
     throw new Error("Amount must be a positive integer (rupees)")
@@ -112,14 +138,20 @@ export async function createUnpayTransaction(payload: {
     payload.metadata?.order_id ||
     `unpay_${Date.now()}`
 
-  const requestBody = {
+  const callbackUrl = process.env.UNPAY_CALLBACK_URL || 
+                     process.env.SERVER_URL || 
+                     `https://payments.versaitechnology.com/api/payments/webhook/unpay`
+
+  // ✅ Get valid server IP
+  const serverIp = await getUnpayIp()
+
+  const requestBody: any = {
     partner_id: UNPAY_PARTNER_ID,
     txnid: orderId,
     amount: String(amount),
     currency: payload.currency || "INR",
-    callback:
-      process.env.UNPAY_CALLBACK_URL ||
-      `${process.env.CLIENT_URL}/api/unpay/callback`,
+    callback: callbackUrl,
+    ip: serverIp,
   }
 
   console.log(
@@ -132,9 +164,11 @@ export async function createUnpayTransaction(payload: {
   console.log("[UnPay] Encrypted request body:", encryptedBody)
 
   try {
-    const resp = await unpayClient.post("/payin/order/create", {
-      body: encryptedBody,
-    })
+    const resp = await unpayClient.post(
+        "/payin/order/create",
+        encryptedBody
+      )
+
 
     console.log(
       "[UnPay] Create payment response:",
@@ -167,6 +201,86 @@ export async function createUnpayTransaction(payload: {
       err.response?.data?.message ||
         err.response?.data?.error ||
         "UnPay transaction failed"
+    )
+  }
+}
+
+// ======================
+// Create Dynamic QR
+// ======================
+export async function createUnpayDynamicQR(payload: {
+  amount: number
+  apitxnid: string
+}) {
+  console.log("[UnPay Dynamic QR] Payload:", payload)
+
+  if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) {
+    throw new Error("UnPay credentials missing in environment variables")
+  }
+
+  validateAesConfig()
+
+  const amount = Number(payload.amount)
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new Error("Amount must be a positive integer (INR)")
+  }
+
+  // ✅ Get valid server IP
+  const serverIp = await getUnpayIp()
+
+  const webhookUrl = process.env.UNPAY_WEBHOOK_URL
+  if (!webhookUrl) {
+    throw new Error("UNPAY_WEBHOOK_URL environment variable is required")
+  }
+
+  const requestBody = {
+    partner_id: UNPAY_PARTNER_ID,
+    apitxnid: payload.apitxnid,
+    amount: amount,
+    webhook: webhookUrl,
+    ip: serverIp,
+  }
+
+  console.log(
+    "[UnPay Dynamic QR] Request body before encryption:",
+    JSON.stringify(requestBody, null, 2)
+  )
+
+  const encryptedBody = encryptAES(JSON.stringify(requestBody))
+
+  console.log("[UnPay Dynamic QR] Encrypted body:", encryptedBody)
+
+  try {
+    const resp = await unpayClient.post(
+        "/next/upi/request/qr",
+        encryptedBody
+      )
+
+    console.log(
+      "[UnPay Dynamic QR] Response:",
+      JSON.stringify(resp.data, null, 2)
+    )
+
+    if (resp.data?.status !== "TXN") {
+      throw new Error(resp.data?.message || "UnPay Dynamic QR creation failed")
+    }
+
+    return {
+      apitxnid: resp.data.data.apitxnid,
+      qrString: resp.data.data.qrString,
+      time: resp.data.data.time,
+    }
+  } catch (err: any) {
+    console.error("[UnPay Dynamic QR] Error (FULL):", {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+    })
+
+    throw new Error(
+      err.response?.data?.message ||
+        err.response?.data?.error ||
+        "UnPay Dynamic QR failed"
     )
   }
 }

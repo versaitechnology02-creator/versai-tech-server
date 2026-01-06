@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express"
 import razorpay from "../config/razorpay"
-import { createUnpayTransaction, getUnpayIp } from "../services/unpay"
+import { createUnpayTransaction, createUnpayDynamicQR, getUnpayIp, decryptAES } from "../services/unpay"
 import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
@@ -33,70 +33,19 @@ router.get("/test/unpay-ip", async (req: Request, res: Response) => {
 })
 
 router.post("/generate-link", authMiddleware, isVerified, async (req: Request, res: Response) => {
-  try {
-    const { amount, customer_email, customer_name, description } = req.body
-
-    if (!amount || amount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid amount",
-      })
-    }
-
-    const linkId = `link_${Date.now()}`
-    const link = {
-      link_id: linkId,
-      amount,
-      customer_email,
-      customer_name,
-      description,
-      url: `${process.env.CLIENT_URL}/payment?link_id=${linkId}`,
-      created_at: new Date().toISOString(),
-      status: "active",
-    }
-
-    paymentLinks.set(linkId, link)
-
-    res.status(201).json({
-      success: true,
-      data: link,
-    })
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    })
-  }
+  // REMOVED: This route creates frontend URLs which violate UPI intent requirements
+  return res.status(410).json({
+    success: false,
+    message: "This endpoint is deprecated. Use /create-order for direct UPI links."
+  })
 })
 
 router.post("/deep-link", authMiddleware, isVerified, async (req: Request, res: Response) => {
-  try {
-    const { amount, customer_email, customer_name, return_url, notify_url } = req.body
-
-    const linkId = `deeplink_${Date.now()}`
-    const deepLink = {
-      link_id: linkId,
-      amount,
-      customer_email,
-      customer_name,
-      return_url,
-      notify_url,
-      url: `${process.env.CLIENT_URL}/payment?deep_link=${linkId}`,
-      created_at: new Date().toISOString(),
-    }
-
-    paymentLinks.set(linkId, deepLink)
-
-    res.status(201).json({
-      success: true,
-      data: deepLink,
-    })
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    })
-  }
+  // REMOVED: This route creates frontend URLs which violate UPI intent requirements
+  return res.status(410).json({
+    success: false,
+    message: "This endpoint is deprecated. Use /create-order for direct UPI links."
+  })
 })
 
 router.post("/payout", async (req: Request, res: Response) => {
@@ -244,7 +193,10 @@ router.get("/settlements", (req: Request, res: Response) => {
 // Create Order
 router.post("/create-order", authMiddleware, isVerified, async (req: Request, res: Response) => {
   try {
-    const { amount, currency = "INR", description, customer_id, receipt, notes } = req.body as CreateOrderRequest
+    console.log("RAZORPAY_KEY_ID IN USE:", process.env.RAZORPAY_KEY_ID);
+    console.log("RAZORPAY_KEY_SECRET SET:", process.env.RAZORPAY_KEY_SECRET ? "YES" : "NO");
+    
+    const { amount, currency = "INR", description, customer_id, receipt, notes, provider } = req.body as CreateOrderRequest & { provider?: string }
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -304,65 +256,283 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       console.error("Failed to persist transaction:", err)
     }
 
-    // After Razorpay order creation, call Unpay then Smepay sequentially.
-    // These calls are best-effort: failures won't block the main order creation,
-    // but we capture their responses and persist if possible.
-    try {
-      const unpayResp = await createUnpayTransaction({
-        amount,
-        currency,
-        description,
-        customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
-        metadata: { razorpay_order_id: order.id },
-      })
-
-      // attach unpay info to in-memory transaction
-      ;(transaction as any).unpay = unpayResp
-
-      // update DB record with unpay id if present
+    // Call only the selected provider (or both if no provider specified for backward compatibility)
+    // This ensures money goes to the correct merchant account
+    const selectedProvider = provider?.toLowerCase()
+    
+    // Call SMEPay only if selected or if no provider specified (backward compatibility)
+    if (!selectedProvider || selectedProvider === "smepay") {
       try {
-        await Transaction.findOneAndUpdate(
-          { orderId: order.id },
-          { $set: { "notes.unpay": unpayResp, updatedAt: new Date() } },
-          { upsert: false },
-        )
-      } catch (err) {
-        console.error("Failed to update DB with Unpay response:", err)
-      }
-    } catch (err: any) {
-      console.warn("Unpay call failed (non-fatal):", err.message)
-      ;(transaction as any).unpay_error = err.message
-    }
+        const smepayResp = await createSmepayTransaction({
+          amount,
+          currency,
+          description,
+          customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
+          metadata: { razorpay_order_id: order.id },
+        })
 
-    try {
-      const smepayResp = await createSmepayTransaction({
-        amount,
-        currency,
-        description,
-        customer: { name: notes?.name, email: notes?.email, phone: notes?.phone },
-        metadata: { razorpay_order_id: order.id },
-      })
+        // attach smepay info to in-memory transaction
+        ;(transaction as any).smepay = smepayResp
 
-      ;(transaction as any).smepay = smepayResp
-
-      try {
-        await Transaction.findOneAndUpdate(
-          { orderId: order.id },
-          { $set: { "notes.smepay": smepayResp, updatedAt: new Date() } },
-          { upsert: false },
-        )
-      } catch (err) {
-        console.error("Failed to update DB with Smepay response:", err)
-      }
-    } catch (err: any) {
-      console.warn("Smepay call failed (non-fatal):", err.message)
-      ;(transaction as any).smepay_error = err.message
-      // Surface critical errors to client
-      if (err.message.includes("wallet balance") || err.message.includes("auth failed")) {
-        ;(transaction as any).smepay_critical_error = err.message
+        // update DB record with smepay info if present
+        try {
+          await Transaction.findOneAndUpdate(
+            { orderId: order.id },
+            { $set: { "notes.smepay": smepayResp, updatedAt: new Date() } },
+            { upsert: false },
+          )
+        } catch (err) {
+          console.error("Failed to update DB with SMEPay response:", err)
+        }
+      } catch (err: any) {
+        console.warn("SMEPay call failed (non-fatal):", err.message)
+        ;(transaction as any).smepay_error = err.message
+        // If SMEPay was specifically selected and failed, surface the error
+        if (selectedProvider === "smepay") {
+          ;(transaction as any).smepay_critical_error = err.message
+        }
       }
     }
 
+    // Call UnPay only if selected or if no provider specified (backward compatibility)
+    // Determine if this environment should allow UnPay (prefer NODE_ENV, but also accept SERVER_URL)
+    const isProdEnv = process.env.NODE_ENV === 'production' || (process.env.SERVER_URL && process.env.SERVER_URL.includes('payments.versaitechnology.com'))
+
+    // Safety: if CLIENT_URL explicitly contains localhost, treat as non-production
+    const clientUrlIsLocal = !!process.env.CLIENT_URL && process.env.CLIENT_URL.includes('localhost')
+
+    const allowUnPay = isProdEnv && !clientUrlIsLocal
+
+    if ((!selectedProvider || selectedProvider === "unpay") && allowUnPay) {
+      try {
+        const unpayResp = await createUnpayDynamicQR({
+          amount,
+          apitxnid: order.id,
+        })
+
+        // attach unpay info to in-memory transaction
+        ;(transaction as any).unpay = unpayResp
+
+        // update DB record with unpay qr info
+        try {
+          await Transaction.findOneAndUpdate(
+            { orderId: order.id },
+            { $set: { "notes.unpay": unpayResp, updatedAt: new Date() } },
+            { upsert: false },
+          )
+        } catch (err) {
+          console.error("Failed to update DB with Unpay response:", err)
+        }
+      } catch (err: any) {
+        console.warn("Unpay call failed (non-fatal):", err.message)
+        ;(transaction as any).unpay_error = err.message
+        // If UnPay was specifically selected and failed, surface the error
+        if (selectedProvider === "unpay") {
+          ;(transaction as any).unpay_critical_error = err.message
+        }
+      }
+    } else if (selectedProvider === "unpay" && !allowUnPay) {
+      // If UnPay is specifically selected but we're not in production, show error
+      ;(transaction as any).unpay_error = "UnPay is not available in local development environment"
+      ;(transaction as any).unpay_critical_error = "UnPay is not available in local development environment"
+    }
+
+    // Call Razorpay Payment Link and QR Code creation if selected
+    let razorpayPaymentLink: any = null
+    let razorpayQrCode: any = null
+    
+    // NOTE: Razorpay should NOT use payment links or QR - only order + checkout
+    // Payment links/QR are optional and feature-restricted for Razorpay
+    /*
+    if (selectedProvider === "razorpay") {
+      console.log("[Razorpay] Starting payment link/QR creation for Razorpay provider")
+      console.log("[Razorpay] Environment keys:", {
+        keyId: process.env.RAZORPAY_KEY_ID ? "set" : "not set",
+        keySecret: process.env.RAZORPAY_KEY_SECRET ? "set" : "not set"
+      })
+      
+      try {
+        // Check if Razorpay is configured
+        if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+          const error = "Razorpay keys not configured"
+          console.error("[Razorpay]", error)
+          ;(transaction as any).razorpay_error = error
+        } else {
+          // Use direct API calls instead of SDK methods for better compatibility
+          const axios = require('axios')
+          const auth = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')
+          
+          // Create Payment Link
+          const paymentLinkData = {
+            amount: Math.round(amount * 100), // Convert to paise
+            currency: currency || "INR",
+            description: description || "Payment",
+            customer: {
+              name: notes?.name || "Customer",
+              email: notes?.email || "",
+              contact: notes?.phone || "",
+            },
+            notify: {
+              sms: true,
+              email: true,
+            },
+            reminder_enable: true,
+            notes: {
+              ...notes,
+              razorpay_order_id: order.id,
+            },
+            callback_url: process.env.SERVER_URL ? `${process.env.SERVER_URL}/api/payments/webhook/razorpay` : "https://payments.versaitechnology.com/api/payments/webhook/razorpay",
+            callback_method: "post",
+          }
+
+          console.log("[Razorpay] Creating payment link with data:", JSON.stringify(paymentLinkData, null, 2))
+          
+          try {
+            const paymentLinkResponse = await axios.post('https://api.razorpay.com/v1/payment_links', paymentLinkData, {
+              headers: {
+                'Authorization': `Basic ${auth}`,
+                'Content-Type': 'application/json'
+              }
+            })
+            razorpayPaymentLink = paymentLinkResponse.data
+            console.log("[Razorpay] Payment link created successfully:", razorpayPaymentLink?.id, razorpayPaymentLink?.short_url)
+          } catch (linkErr: any) {
+            console.error("[Razorpay] Payment link creation failed:", {
+              message: linkErr.message,
+              status: linkErr.response?.status,
+              data: linkErr.response?.data
+            })
+            ;(transaction as any).razorpay_error = `Payment link creation failed: ${linkErr.message}`
+          }
+
+          // Create QR Code only if payment link was created
+          if (razorpayPaymentLink?.id) {
+            const qrCodeData = {
+              type: "upi_qr",
+              name: `Payment for ${description || "Order"}`,
+              usage: "single_use",
+              fixed_amount: true,
+              payment_amount: Math.round(amount * 100),
+              description: description || "Payment",
+              notes: {
+                ...notes,
+                razorpay_order_id: order.id,
+                payment_link_id: razorpayPaymentLink.id,
+              },
+            }
+
+            console.log("[Razorpay] Creating QR code with data:", JSON.stringify(qrCodeData, null, 2))
+            
+            try {
+              const qrCodeResponse = await axios.post('https://api.razorpay.com/v1/qr_codes', qrCodeData, {
+                headers: {
+                  'Authorization': `Basic ${auth}`,
+                  'Content-Type': 'application/json'
+                }
+              })
+              razorpayQrCode = qrCodeResponse.data
+              console.log("[Razorpay] QR code created successfully:", razorpayQrCode?.id, razorpayQrCode?.image_url)
+            } catch (qrErr: any) {
+              console.error("[Razorpay] QR code creation failed:", {
+                message: qrErr.message,
+                status: qrErr.response?.status,
+                data: qrErr.response?.data
+              })
+              // Don't fail if QR code fails, payment link is still usable
+              ;(transaction as any).razorpay_qr_error = `QR code creation failed: ${qrErr.message}`
+            }
+          }
+
+          // Update DB with Razorpay payment link and QR code info
+          try {
+            await Transaction.findOneAndUpdate(
+              { orderId: order.id },
+              { 
+                $set: { 
+                  "notes.razorpay_payment_link": razorpayPaymentLink,
+                  "notes.razorpay_qr_code": razorpayQrCode,
+                  updatedAt: new Date() 
+                } 
+              },
+              { upsert: false },
+            )
+            console.log("[Razorpay] Database updated with payment link and QR code info")
+          } catch (err) {
+            console.error("[Razorpay] Failed to update DB with Razorpay payment link/QR:", err)
+          }
+        }
+      } catch (err: any) {
+        console.error("[Razorpay] Failed to create payment link/QR:", {
+          message: err.message,
+          status: err.statusCode,
+          response: err.response?.data,
+          stack: err.stack
+        })
+        // Don't fail the entire request if Razorpay payment link/QR creation fails
+        ;(transaction as any).razorpay_error = err.message
+      }
+    }
+    */
+
+    // Extract UPI intents and official gateway hosted links from provider responses
+    // CRITICAL: Only return UPI intents or official gateway links, NEVER frontend URLs
+    
+    // UnPay: Use qrString for Dynamic QR
+    const unpayQrString = (transaction as any).unpay?.qrString
+    const unpayLink = (unpayQrString && typeof unpayQrString === 'string') ? unpayQrString : null
+    
+    // SMEPay: Use ONLY payment_url (as per requirement - PRIMARY provider)
+    // SMEPay service returns payment_url in the response - this is the official gateway link
+    const smepayPaymentUrl = (transaction as any).smepay?.payment_url
+    // CRITICAL: Use ONLY payment_url for SMEPay (primary provider requirement)
+    const smepayLink = (smepayPaymentUrl && typeof smepayPaymentUrl === 'string') ? smepayPaymentUrl : null
+
+    // Razorpay: Use payment link short URL
+    const razorpayLink = razorpayPaymentLink?.short_url || null
+
+    // Check for critical errors when specific provider is selected
+    if (selectedProvider === "smepay" && (transaction as any).smepay_critical_error) {
+      return res.status(400).json({
+        success: false,
+        message: `SMEPay error: ${(transaction as any).smepay_critical_error}`,
+      })
+    }
+    
+    if (selectedProvider === "unpay" && (transaction as any).unpay_critical_error) {
+      return res.status(400).json({
+        success: false,
+        message: `UnPay error: ${(transaction as any).unpay_critical_error}`,
+      })
+    }
+    
+    if (selectedProvider === "razorpay" && (transaction as any).razorpay_error) {
+      console.log("[Razorpay] Razorpay failed, but returning order info for checkout")
+      // Don't return error, return the order info so user can do checkout
+      // finalPaymentLink will be null, but order_id and key_id will be available for checkout
+    }
+
+    // Return the payment link based on selected provider (normalized to lowercase)
+    // If provider is specified, return only that provider's link
+    let finalPaymentLink: string | null = null
+    
+    // Normalize provider for comparison (frontend may send "SMEPay", "UnPay", "smepay", etc.)
+    // selectedProvider is already lowercased, use it directly
+    const normalizedProvider = selectedProvider || null
+    
+    if (normalizedProvider === "smepay") {
+      finalPaymentLink = smepayLink
+    } else if (normalizedProvider === "unpay") {
+      finalPaymentLink = unpayLink
+    } else if (normalizedProvider === "razorpay") {
+      finalPaymentLink = razorpayLink
+    } else {
+      // If no provider specified, fallback priority: SMEPay → UnPay → Razorpay
+      finalPaymentLink = smepayLink || unpayLink || razorpayLink
+    }
+
+    // Log payment link for debugging
+    console.log(`[Payment] Provider: ${normalizedProvider || 'none'}, Payment Link: ${finalPaymentLink || 'null'}`)
+    
     res.status(201).json({
       success: true,
       data: {
@@ -370,6 +540,25 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         amount: order.amount,
         currency: order.currency,
         key_id: process.env.RAZORPAY_KEY_ID,
+        // Return SINGLE payment_link field (null if unavailable)
+        final_payment_link: finalPaymentLink,
+        // Include QR code data if available
+        qr_code: razorpayQrCode ? {
+          id: razorpayQrCode.id,
+          image_url: razorpayQrCode.image_url,
+          upi_id: razorpayQrCode.upi_id,
+          name: razorpayQrCode.name,
+        } : null,
+        // Provider-specific data for debugging
+        provider_data: {
+          razorpay: razorpayPaymentLink ? {
+            payment_link_id: razorpayPaymentLink.id,
+            short_url: razorpayPaymentLink.short_url,
+            status: razorpayPaymentLink.status,
+          } : null,
+          smepay: (transaction as any).smepay || null,
+          unpay: (transaction as any).unpay || null,
+        },
       },
     })
   } catch (error: any) {
@@ -465,7 +654,10 @@ router.get("/transaction/:orderId", (req: Request, res: Response) => {
 
     res.status(200).json({
       success: true,
-      data: transaction,
+      data: {
+        ...transaction,
+        key_id: process.env.RAZORPAY_KEY_ID,
+      },
     })
   } catch (error: any) {
     res.status(500).json({
@@ -488,6 +680,254 @@ router.get("/transactions", (req: Request, res: Response) => {
       success: false,
       message: error.message,
     })
+  }
+})
+
+// Razorpay Webhook Handler
+router.post("/webhook/razorpay", async (req: Request, res: Response) => {
+  try {
+    console.log("[Razorpay Webhook] Received webhook:", {
+      headers: req.headers,
+      body: req.body,
+      query: req.query,
+    })
+
+    // Razorpay sends webhook data in the body
+    const webhookData = req.body
+
+    if (!webhookData) {
+      console.error("[Razorpay Webhook] No webhook data received")
+      return res.status(400).json({ success: false, message: "No data received" })
+    }
+
+    // Extract event and payment data
+    const { event, payment } = webhookData
+
+    if (!event || !payment) {
+      console.error("[Razorpay Webhook] Missing event or payment data")
+      return res.status(400).json({ success: false, message: "Invalid webhook data" })
+    }
+
+    // Only process payment.captured events
+    if (event !== "payment.captured") {
+      console.log(`[Razorpay Webhook] Ignoring event: ${event}`)
+      return res.status(200).json({ success: true, message: "Event ignored" })
+    }
+
+    const { order_id, id: payment_id, status, amount } = payment
+
+    if (!order_id) {
+      console.error("[Razorpay Webhook] Missing order_id")
+      return res.status(400).json({ success: false, message: "Missing order_id" })
+    }
+
+    // Determine status mapping
+    let dbStatus: string
+    if (status === "captured") {
+      dbStatus = "completed"
+    } else if (status === "failed") {
+      dbStatus = "failed"
+    } else {
+      dbStatus = "pending"
+    }
+
+    console.log(`[Razorpay Webhook] Updating transaction ${order_id} to status: ${dbStatus}`)
+
+    // Update transaction in database
+    try {
+      const updateResult = await Transaction.findOneAndUpdate(
+        { orderId: order_id },
+        {
+          $set: {
+            paymentId: payment_id,
+            status: dbStatus,
+            updatedAt: new Date(),
+            "notes.razorpay_webhook": {
+              received_at: new Date(),
+              event,
+              payment_id,
+              status,
+              amount,
+              raw_payload: webhookData,
+            },
+          },
+        },
+        { upsert: false, new: true }
+      )
+
+      if (!updateResult) {
+        console.warn(`[Razorpay Webhook] Transaction ${order_id} not found in database`)
+        return res.status(404).json({ success: false, message: "Transaction not found" })
+      }
+
+      console.log(`[Razorpay Webhook] Successfully updated transaction ${order_id}`)
+    } catch (err: any) {
+      console.error("[Razorpay Webhook] Database update failed:", err.message)
+      return res.status(500).json({ success: false, message: "Database update failed" })
+    }
+
+    // Respond to Razorpay
+    res.status(200).json({ success: true, message: "Webhook processed successfully" })
+  } catch (error: any) {
+    console.error("[Razorpay Webhook] Unexpected error:", error)
+    res.status(500).json({ success: false, message: "Internal server error" })
+  }
+})
+
+// SMEPay Webhook Handler
+router.post("/webhook/smepay", async (req: Request, res: Response) => {
+  try {
+    console.log("[SMEPay Webhook] Received webhook:", {
+      headers: req.headers,
+      body: req.body,
+      query: req.query,
+    })
+
+    // Log the payload for analysis - implement proper verification later
+    const { order_id, status, amount, transaction_id } = req.body
+
+    if (!order_id) {
+      console.error("[SMEPay Webhook] Missing order_id")
+      return res.status(400).json({ success: false, message: "Missing order_id" })
+    }
+
+    // Determine status mapping (assuming SMEPay uses similar status values)
+    let dbStatus: string
+    if (status === "success" || status === "SUCCESS" || status === "completed") {
+      dbStatus = "completed"
+    } else if (status === "failed" || status === "FAILED") {
+      dbStatus = "failed"
+    } else {
+      dbStatus = "pending"
+    }
+
+    console.log(`[SMEPay Webhook] Updating transaction ${order_id} to status: ${dbStatus}`)
+
+    // Update transaction in database
+    try {
+      const updateResult = await Transaction.findOneAndUpdate(
+        { orderId: order_id },
+        {
+          $set: {
+            status: dbStatus,
+            paymentId: transaction_id || "",
+            updatedAt: new Date(),
+            "notes.smepay_webhook": {
+              received_at: new Date(),
+              status,
+              amount,
+              transaction_id,
+              raw_payload: req.body,
+            },
+          },
+        },
+        { upsert: false, new: true }
+      )
+
+      if (!updateResult) {
+        console.warn(`[SMEPay Webhook] Transaction ${order_id} not found in database`)
+        return res.status(404).json({ success: false, message: "Transaction not found" })
+      }
+
+      console.log(`[SMEPay Webhook] Successfully updated transaction ${order_id}`)
+    } catch (err: any) {
+      console.error("[SMEPay Webhook] Database update failed:", err.message)
+      return res.status(500).json({ success: false, message: "Database update failed" })
+    }
+
+    // Respond to SMEPay
+    res.status(200).json({ success: true, message: "Webhook processed successfully" })
+  } catch (error: any) {
+    console.error("[SMEPay Webhook] Unexpected error:", error)
+    res.status(500).json({ success: false, message: "Internal server error" })
+  }
+})
+
+// UnPay Webhook Handler
+router.post("/webhook/unpay", async (req: Request, res: Response) => {
+  try {
+    console.log("[UnPay Webhook] Received webhook:", {
+      headers: req.headers,
+      body: req.body,
+      rawBody: (req as any).rawBody,
+    })
+
+    // UnPay sends encrypted payload in the body
+    const encryptedData = req.body?.body || (req as any).rawBody
+    if (!encryptedData) {
+      console.error("[UnPay Webhook] No encrypted data received")
+      return res.status(400).json({ success: false, message: "No data received" })
+    }
+
+    // Decrypt the webhook payload
+    let webhookData: any
+    try {
+      const decryptedData = decryptAES(encryptedData)
+      webhookData = JSON.parse(decryptedData)
+      console.log("[UnPay Webhook] Decrypted payload:", webhookData)
+    } catch (err: any) {
+      console.error("[UnPay Webhook] Failed to decrypt/parse payload:", err.message)
+      return res.status(400).json({ success: false, message: "Invalid webhook data" })
+    }
+
+    // Extract transaction details
+    const { txnid, status, amount, upi_tr, message } = webhookData
+
+    if (!txnid) {
+      console.error("[UnPay Webhook] Missing transaction ID")
+      return res.status(400).json({ success: false, message: "Missing transaction ID" })
+    }
+
+    // Determine status mapping
+    let dbStatus: string
+    if (status === "success" || status === "SUCCESS") {
+      dbStatus = "completed"
+    } else if (status === "failed" || status === "FAILED") {
+      dbStatus = "failed"
+    } else {
+      dbStatus = "pending"
+    }
+
+    console.log(`[UnPay Webhook] Updating transaction ${txnid} to status: ${dbStatus}`)
+
+    // Update transaction in database
+    try {
+      const updateResult = await Transaction.findOneAndUpdate(
+        { orderId: txnid },
+        {
+          $set: {
+            status: dbStatus,
+            paymentId: upi_tr || "",
+            updatedAt: new Date(),
+            "notes.unpay_webhook": {
+              received_at: new Date(),
+              status,
+              amount,
+              upi_tr,
+              message,
+              raw_payload: webhookData,
+            },
+          },
+        },
+        { upsert: false, new: true }
+      )
+
+      if (!updateResult) {
+        console.warn(`[UnPay Webhook] Transaction ${txnid} not found in database`)
+        return res.status(404).json({ success: false, message: "Transaction not found" })
+      }
+
+      console.log(`[UnPay Webhook] Successfully updated transaction ${txnid}`)
+    } catch (err: any) {
+      console.error("[UnPay Webhook] Database update failed:", err.message)
+      return res.status(500).json({ success: false, message: "Database update failed" })
+    }
+
+    // Respond to UnPay
+    res.status(200).json({ success: true, message: "Webhook processed successfully" })
+  } catch (error: any) {
+    console.error("[UnPay Webhook] Unexpected error:", error)
+    res.status(500).json({ success: false, message: "Internal server error" })
   }
 })
 

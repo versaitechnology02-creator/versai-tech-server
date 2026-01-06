@@ -106,25 +106,29 @@ router.post("/verify-otp", async (req: Request, res: Response) => {
       })
     }
 
-    // Mark user as verified
+    // Mark email as verified (OTP verification), but user still needs admin verification
+    // DO NOT set isVerified - that's for admin verification only
+    // verified field is for email/OTP verification
     user.verified = true
-    user.verifiedAt = new Date()
+    // Do NOT set verifiedAt here - that's for admin verification
     if (name) user.name = name
     user.otp = { code: "", expiresAt: new Date() }
     await user.save()
 
-    // Generate JWT token
-    const token = generateToken(user._id.toString())
+    // DO NOT generate token or allow login - user must wait for admin verification
+    // User can only login after admin verifies them (isVerified = true)
 
     res.status(200).json({
       success: true,
-      message: "Email verified successfully",
-      token,
+      message: "Email verified successfully. Your account is pending admin verification. You will be notified once your account is approved.",
+      // NO token - user cannot login until admin verifies
       user: {
         id: user._id,
         email: user.email,
         name: user.name,
         isAdmin: !!user.isAdmin,
+        isVerified: false, // Admin verification pending
+        verified: true, // Email verified
       },
     })
   } catch (error: any) {
@@ -150,8 +154,21 @@ router.post("/sign-in", async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: "User not found" })
     }
 
-    if (!user.verified) {
-      return res.status(403).json({ success: false, message: "Account not verified. Please complete signup verification." })
+    // Check email verification (OTP verification) - must be true
+    // EXCEPTION: Admins can login regardless of verification status
+    if (!user.verified && !user.isAdmin) {
+      return res.status(403).json({ success: false, message: "Email not verified. Please complete signup verification." })
+    }
+
+    // CRITICAL: Check admin verification - user CANNOT login until admin verifies
+    // verified = email/OTP verification (must be true)
+    // isVerified = admin verification (must be true to login)
+    // EXCEPTION: Admins can login regardless of isVerified status
+    if (!user.isVerified && !user.isAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Your account is pending admin verification. Please wait for approval or contact support." 
+      })
     }
 
     if (!user.password) {

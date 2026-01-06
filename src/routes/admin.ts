@@ -173,33 +173,96 @@ router.get("/overview", authMiddleware, isAdmin, async (req: Request, res: Respo
 router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { isAdmin: makeAdmin, isVerified: verifyUser } = req.body as { isAdmin?: boolean; isVerified?: boolean }
+    
+    // Validate user ID format
+    if (!id || id.length < 24) {
+      return res.status(400).json({ success: false, message: "Invalid user ID format" })
+    }
+
+    // Parse and validate request body - handle both string and boolean values
+    let { isVerified: verifyUser, isAdmin: adminUser } = req.body as { isVerified?: boolean | string, isAdmin?: boolean | string }
+
+    // Convert string "true"/"false" to boolean if needed
+    if (typeof verifyUser === "string") {
+      verifyUser = verifyUser === "true" || verifyUser === "1"
+    }
+    if (typeof adminUser === "string") {
+      adminUser = adminUser === "true" || adminUser === "1"
+    }
 
     const updateFields: any = {}
-    if (typeof makeAdmin !== "undefined") {
-      updateFields.isAdmin = !!makeAdmin
-    }
-    if (typeof verifyUser !== "undefined") {
-      updateFields.isVerified = !!verifyUser
+    
+    // Handle isVerified update (admin verification)
+    if (typeof verifyUser !== "undefined" && verifyUser !== null) {
+      const isVerifiedValue = Boolean(verifyUser)
+      updateFields.isVerified = isVerifiedValue
+      // DO NOT override 'verified' field - that's for email/OTP verification
+      // Only update isVerified for admin verification
+      // Set verifiedAt timestamp when admin verifies
+      if (isVerifiedValue) {
+        updateFields.verifiedAt = new Date()
+      } else {
+        // When unverifying, clear the timestamp but keep email verification status
+        updateFields.verifiedAt = null
+      }
     }
 
+    // Handle isAdmin update
+    if (typeof adminUser !== "undefined" && adminUser !== null) {
+      updateFields.isAdmin = Boolean(adminUser)
+    }
+
+    // Allow updates with isVerified or isAdmin
     if (Object.keys(updateFields).length === 0) {
-      return res.status(400).json({ success: false, message: "At least one field (isAdmin or isVerified) is required in body" })
+      return res.status(400).json({ 
+        success: false, 
+        message: "isVerified or isAdmin field must be provided in the request body." 
+      })
     }
 
+    // Fetch the user to validate
+    const existingUser = await User.findById(id)
+    if (!existingUser) {
+      return res.status(404).json({ success: false, message: "User not found" })
+    }
+
+    // If trying to verify (set isVerified=true), ensure user has completed email verification
+    if (updateFields.isVerified === true && !existingUser.verified) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Cannot verify user. User must complete email verification first." 
+      })
+    }
+
+    // Use findOneAndUpdate with runValidators to ensure proper persistence
     const user = await User.findByIdAndUpdate(
       id,
       { $set: updateFields },
-      { new: true },
+      { new: true, runValidators: true }
     ).select("-password -otp")
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" })
     }
 
+    // Log verification update for debugging
+    if (typeof verifyUser !== "undefined") {
+      console.log(`[Admin] User ${user.email} verification updated:`, {
+        isVerified: user.isVerified,
+        verified: user.verified,
+        verifiedAt: user.verifiedAt,
+        userId: user._id
+      })
+    }
+
     res.json({ success: true, data: user })
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message })
+    console.error("Error updating user:", error)
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || "Failed to update user",
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    })
   }
 })
 

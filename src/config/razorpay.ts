@@ -32,6 +32,16 @@ if (keyId && keySecret) {
         throw new Error("Razorpay keys not configured: cannot create refund")
       },
     },
+    paymentLink: {
+      create: async () => {
+        throw new Error("Razorpay keys not configured: cannot create payment link")
+      },
+    },
+    qrCode: {
+      create: async () => {
+        throw new Error("Razorpay keys not configured: cannot create QR code")
+      },
+    },
   }
 }
 
