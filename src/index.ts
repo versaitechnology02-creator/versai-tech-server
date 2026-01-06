@@ -15,33 +15,43 @@ const app = express()
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
 
 /* =========================================================
-   CORS CONFIG (IMPORTANT)
+   TRUST PROXY (IMPORTANT FOR PAYMENTS & IP)
+========================================================= */
+app.set('trust proxy', true)
+
+/* =========================================================
+   CORS CONFIG (PRODUCTION-GRADE, NO MORE ERRORS)
 ========================================================= */
 
-const allowedOrigins = [
-  'https://payments.versaitechnology.com',
-  'http://localhost:3000'
-]
+// Allow all subdomains of versaitechnology.com
+const ALLOWED_DOMAIN = 'versaitechnology.com'
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // allow REST tools like Postman, curl
+      // Allow server-to-server, webhooks, Postman, curl
       if (!origin) return callback(null, true)
 
-      if (allowedOrigins.includes(origin)) {
+      // Allow localhost (dev)
+      if (origin.startsWith('http://localhost')) {
         return callback(null, true)
       }
 
-      return callback(new Error('Not allowed by CORS'))
+      // Allow all subdomains + www + https
+      if (origin.includes(ALLOWED_DOMAIN)) {
+        return callback(null, true)
+      }
+
+      console.error('❌ Blocked by CORS:', origin)
+      callback(new Error(`Not allowed by CORS: ${origin}`))
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   })
 )
 
-// handle preflight requests
+// Handle preflight requests
 app.options('*', cors())
 
 /* =========================================================
@@ -54,10 +64,17 @@ app.use(express.json())
    DATABASE
 ========================================================= */
 
-const mongo = process.env.MONGO || process.env.MONGO_URI || ''
-connectDB(mongo).catch((error) => {
-  console.error('❌ MongoDB connection failed:', error)
-})
+const mongoUri = process.env.MONGODB_URI
+if (!mongoUri) {
+  throw new Error('❌ MONGODB_URI is not defined in environment variables')
+}
+
+connectDB(mongoUri)
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch((err) => {
+    console.error('❌ MongoDB connection failed:', err)
+    process.exit(1)
+  })
 
 /* =========================================================
    HEALTH CHECK
