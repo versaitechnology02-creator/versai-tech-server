@@ -260,14 +260,24 @@ export async function createUnpayDynamicQR(payload: {
       JSON.stringify(resp.data, null, 2)
     )
 
-    if (resp.data?.status !== "TXN") {
-      throw new Error(resp.data?.message || "UnPay Dynamic QR creation failed")
+    // UnPay may return encrypted response in live mode
+    let responseData = resp.data
+    try {
+      const decrypted = decryptAES(typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data))
+      responseData = JSON.parse(decrypted)
+      console.log("[UnPay Dynamic QR] Decrypted response:", responseData)
+    } catch (decryptErr) {
+      console.log("[UnPay Dynamic QR] Response not encrypted, using plain data")
+    }
+
+    if (responseData?.status !== "TXN") {
+      throw new Error(responseData?.message || "UnPay Dynamic QR creation failed")
     }
 
     return {
-      apitxnid: resp.data.data.apitxnid,
-      qrString: resp.data.data.qrString,
-      time: resp.data.data.time,
+      apitxnid: responseData.data.apitxnid,
+      qrString: responseData.data.qrString,
+      time: responseData.data.time,
     }
   } catch (err: any) {
     console.error("[UnPay Dynamic QR] Error (FULL):", {
