@@ -211,6 +211,7 @@ export async function createUnpayTransaction(payload: {
 export async function createUnpayDynamicQR(payload: {
   amount: number
   apitxnid: string
+  customer_email?: string
 }) {
   console.log("[UnPay Dynamic QR] Payload:", payload)
 
@@ -236,7 +237,9 @@ export async function createUnpayDynamicQR(payload: {
   const requestBody = {
     partner_id: UNPAY_PARTNER_ID,
     apitxnid: payload.apitxnid,
-    amount: Math.round(amount * 100),
+    amount: String(Math.round(amount * 100)),
+    currency: "INR",
+    customer_email: "",
     webhook: webhookUrl,
     ip: serverIp,
   }

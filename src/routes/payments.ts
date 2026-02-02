@@ -308,6 +308,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         const unpayResp = await createUnpayDynamicQR({
           amount,
           apitxnid: order.id,
+          customer_email: notes?.email,
         })
 
         // attach unpay info to in-memory transaction
