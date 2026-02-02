@@ -303,6 +303,13 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     const allowUnPay = isProdEnv && !clientUrlIsLocal
 
+    console.log("[PAYMENT GATEWAY MODE] [create-order]", {
+      provider: selectedProvider || "auto",
+      isProdEnv,
+      clientUrlIsLocal,
+      allowUnPay,
+    })
+
     if ((!selectedProvider || selectedProvider === "unpay") && allowUnPay) {
       try {
         const unpayResp = await createUnpayDynamicQR({

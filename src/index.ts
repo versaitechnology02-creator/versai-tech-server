@@ -91,6 +91,13 @@ app.use('/api/api-keys', apiKeyRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/admin', adminRoutes)
 
+// Legacy SMEPay callback path used by provider: /api/smepay/callback
+// Rewrite to existing /api/payments/webhook/smepay handler without changing router structure
+app.post('/api/smepay/callback', (req: Request, res: Response, next: NextFunction) => {
+  req.url = '/webhook/smepay'
+  ;(paymentRoutes as any).handle(req, res, next)
+})
+
 /* =========================================================
    404 HANDLER
 ========================================================= */

@@ -226,7 +226,7 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Amount must be a positive integer (INR)")
   }
 
-  // ✅ Get valid server IP
+  // ✅ Get valid server IP (shared for both TEST and LIVE)
   const serverIp = await getUnpayIp()
 
   const webhookUrl = process.env.UNPAY_WEBHOOK_URL
@@ -234,13 +234,36 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("UNPAY_WEBHOOK_URL environment variable is required")
   }
 
+  // ======================================================
+  // Determine gateway mode (LIVE vs TEST)
+  // LIVE must never encrypt payloads
+  // ======================================================
+  const isLiveEnv =
+    process.env.UNPAY_ENV === "live" ||
+    process.env.NODE_ENV === "production" ||
+    (!!process.env.SERVER_URL && process.env.SERVER_URL.includes("versaitechnology.com"))
+
   const requestBody = {
     partner_id: UNPAY_PARTNER_ID,
     apitxnid: payload.apitxnid,
     amount: String(amount),
     webhook: webhookUrl,
     ip: serverIp,
+    encrypted: isLiveEnv ? false : true,
   }
+
+  console.log("[PAYMENT GATEWAY MODE] [UnPay Dynamic QR]", {
+    mode: isLiveEnv ? "live" : "test",
+    NODE_ENV: process.env.NODE_ENV,
+    UNPAY_ENV: process.env.UNPAY_ENV,
+    SERVER_URL: process.env.SERVER_URL,
+  })
+
+  const encryptionEnabled = !isLiveEnv
+
+  console.log("[PAYMENT ENCRYPTION STATUS] [UnPay Dynamic QR]", {
+    encryptionEnabled,
+  })
 
   console.log(
     "[UnPay Dynamic QR] Request body:",
@@ -249,25 +272,30 @@ export async function createUnpayDynamicQR(payload: {
 
   console.log("[UNPAY FINAL PAYLOAD]", requestBody);
 
-  const isLive = process.env.UNPAY_ENV === "live"
-
-  console.log("[UNPAY MODE]", process.env.UNPAY_ENV)
-  console.log("[UNPAY ENCRYPTION CALLED]", !isLive)
-
-  const bodyToSend = isLive
-    ? requestBody
-    : encryptAES(JSON.stringify(requestBody))
-
-  const url = isLive
-    ? "https://api.unpay.in/next/upi/request/qr"
-    : "/next/upi/request/qr"
-
-  if (!isLive) {
-    console.log("[UnPay Dynamic QR] Encrypted request body:", bodyToSend)
-  }
-
   try {
-    const resp = await unpayClient.post(url, bodyToSend)
+    let resp;
+    if (isLiveEnv) {
+      // LIVE: never encrypt, send plain JSON object directly to UnPay LIVE host
+      resp = await axios.post("https://api.unpay.in/next/upi/request/qr", requestBody, {
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "api-key": UNPAY_API_KEY,
+        },
+        timeout: 15000,
+      });
+    } else {
+      // TEST / SANDBOX: keep existing encrypted flow
+      const bodyToSend = encryptionEnabled
+        ? encryptAES(JSON.stringify(requestBody))
+        : JSON.stringify(requestBody)
+
+      if (encryptionEnabled) {
+        console.log("[UnPay Dynamic QR] Encrypted request body:", bodyToSend)
+      }
+
+      resp = await unpayClient.post("/next/upi/request/qr", bodyToSend);
+    }
 
     console.log(
       "[UnPay Dynamic QR] Response:",
