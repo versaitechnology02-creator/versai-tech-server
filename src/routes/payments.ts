@@ -136,9 +136,34 @@ router.post("/payout-upi", async (req: Request, res: Response) => {
   }
 })
 
-router.get("/order-status/:orderId", (req: Request, res: Response) => {
+router.get("/order-status/:orderId", async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params
+
+    // Prefer latest status from MongoDB (includes webhook updates)
+    try {
+      const doc: any = await Transaction.findOne({ orderId })
+
+      if (doc) {
+        console.log("[Order Status] Fetched from DB for", orderId, "status:", doc.status)
+        return res.status(200).json({
+          success: true,
+          data: {
+            order_id: doc.orderId,
+            status: doc.status,
+            amount: doc.amount,
+            currency: doc.currency,
+            payment_id: doc.paymentId,
+            created_at: doc.createdAt,
+          },
+        })
+      }
+    } catch (dbErr: any) {
+      console.error("[Order Status] DB lookup failed for", orderId, "error:", dbErr.message)
+      // fall through to in-memory fallback
+    }
+
+    // Fallback to in-memory map for very recent orders
     const transaction = transactions.get(orderId)
 
     if (!transaction) {
@@ -649,9 +674,43 @@ router.post("/verify-payment", async (req: Request, res: Response) => {
 })
 
 // Get Transaction by Order ID
-router.get("/transaction/:orderId", (req: Request, res: Response) => {
+router.get("/transaction/:orderId", async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params
+
+    // Prefer canonical transaction from MongoDB so webhook updates are visible to users
+    try {
+      const doc: any = await Transaction.findOne({ orderId })
+
+      if (doc) {
+        console.log("[Transaction Detail] Fetched from DB for", orderId, "status:", doc.status)
+
+        const data: any = {
+          id: String(doc._id),
+          order_id: doc.orderId,
+          payment_id: doc.paymentId || "",
+          amount: doc.amount,
+          currency: doc.currency,
+          status: doc.status,
+          customer_email: doc.customer?.email,
+          customer_name: doc.customer?.name,
+          notes: doc.notes || {},
+          created_at: doc.createdAt?.toISOString?.() || doc.createdAt,
+          updated_at: doc.updatedAt?.toISOString?.() || doc.updatedAt,
+          key_id: process.env.RAZORPAY_KEY_ID,
+        }
+
+        return res.status(200).json({
+          success: true,
+          data,
+        })
+      }
+    } catch (dbErr: any) {
+      console.error("[Transaction Detail] DB lookup failed for", orderId, "error:", dbErr.message)
+      // fall through to in-memory fallback
+    }
+
+    // Fallback to in-memory map if DB record is missing
     const transaction = transactions.get(orderId)
 
     if (!transaction) {
