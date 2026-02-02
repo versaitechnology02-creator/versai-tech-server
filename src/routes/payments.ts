@@ -792,13 +792,22 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
       query: req.query,
     })
 
-    // Log the payload for analysis - implement proper verification later
-    const { order_id, status, amount, transaction_id } = req.body
+    // SMEPay may send different identifiers; prefer order_id but fall back to ref_id
+    const body = req.body as any
+    const rawOrderId = body.order_id || body.orderId
+    const rawRefId = body.ref_id || body.refId
 
-    if (!order_id) {
-      console.error("[SMEPay Webhook] Missing order_id")
-      return res.status(400).json({ success: false, message: "Missing order_id" })
+    if (!rawOrderId && !rawRefId) {
+      console.error("[SMEPay Webhook] Missing order identifier (order_id/ref_id)")
+      return res.status(400).json({ success: false, message: "Missing order identifier" })
     }
+
+    const candidateIds: string[] = []
+    if (typeof rawOrderId === "string" && rawOrderId.trim()) candidateIds.push(rawOrderId.trim())
+    if (typeof rawRefId === "string" && rawRefId.trim() && rawRefId !== rawOrderId)
+      candidateIds.push(rawRefId.trim())
+
+    const { status, amount, transaction_id } = body
 
     // Determine status mapping (assuming SMEPay uses similar status values)
     let dbStatus: string
@@ -810,12 +819,13 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
       dbStatus = "pending"
     }
 
-    console.log(`[SMEPay Webhook] Updating transaction ${order_id} to status: ${dbStatus}`)
+    console.log("[SMEPay Webhook] Candidate orderIds for lookup:", candidateIds)
+    console.log("[SMEPay Webhook] Resolved dbStatus:", dbStatus)
 
-    // Update transaction in database
+    // Update transaction in database using any of the candidate IDs
     try {
       const updateResult = await Transaction.findOneAndUpdate(
-        { orderId: order_id },
+        { orderId: { $in: candidateIds } },
         {
           $set: {
             status: dbStatus,
@@ -826,7 +836,8 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
               status,
               amount,
               transaction_id,
-              raw_payload: req.body,
+              candidate_order_ids: candidateIds,
+              raw_payload: body,
             },
           },
         },
@@ -834,11 +845,16 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
       )
 
       if (!updateResult) {
-        console.warn(`[SMEPay Webhook] Transaction ${order_id} not found in database`)
+        console.warn("[SMEPay Webhook] Transaction not found for any of:", candidateIds)
         return res.status(404).json({ success: false, message: "Transaction not found" })
       }
 
-      console.log(`[SMEPay Webhook] Successfully updated transaction ${order_id}`)
+      console.log(
+        "[SMEPay Webhook] Successfully updated transaction",
+        updateResult.orderId,
+        "to status:",
+        dbStatus
+      )
     } catch (err: any) {
       console.error("[SMEPay Webhook] Database update failed:", err.message)
       return res.status(500).json({ success: false, message: "Database update failed" })

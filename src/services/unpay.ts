@@ -322,6 +322,48 @@ export async function createUnpayDynamicQR(payload: {
       data: err.response?.data,
     });
 
+    const errorMessage: string =
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.message ||
+      ""
+
+    const isEncryptionError = /Invalid encryption request or body value missing/i.test(
+      errorMessage
+    )
+
+    // If sandbox encryption is rejected, retry once with plain JSON body
+    if (!isLiveEnv && isEncryptionError) {
+      console.warn(
+        "[UnPay Dynamic QR] Encryption error detected in sandbox, retrying with plain JSON body"
+      )
+
+      try {
+        const retryResp = await unpayClient.post("/next/upi/request/qr", requestBody)
+
+        console.log(
+          "[UnPay Dynamic QR] Retry response:",
+          JSON.stringify(retryResp.data, null, 2)
+        )
+
+        if (retryResp.data?.status !== "TXN") {
+          throw new Error(retryResp.data?.message || "UnPay Dynamic QR retry failed")
+        }
+
+        return {
+          apitxnid: retryResp.data.data.apitxnid,
+          qrString: retryResp.data.data.qrString,
+          time: retryResp.data.data.time,
+        }
+      } catch (retryErr: any) {
+        console.error("[UnPay Dynamic QR] Retry after encryption error failed:", {
+          message: retryErr.message,
+          status: retryErr.response?.status,
+          data: retryErr.response?.data,
+        })
+      }
+    }
+
     throw new Error(
       err.response?.data?.message ||
         err.response?.data?.error ||
