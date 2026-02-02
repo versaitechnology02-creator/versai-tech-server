@@ -126,8 +126,6 @@ export async function createUnpayTransaction(payload: {
     throw new Error("UnPay credentials missing in environment variables")
   }
 
-  validateAesConfig()
-
   const amount = Number(payload.amount)
   if (!Number.isInteger(amount) || amount <= 0) {
     throw new Error("Amount must be a positive integer (rupees)")
@@ -154,20 +152,23 @@ export async function createUnpayTransaction(payload: {
     ip: serverIp,
   }
 
-  console.log(
-    "[UnPay] Request body (before encryption):",
-    JSON.stringify(requestBody, null, 2)
-  )
+console.log(
+  "[UnPay] Request body (before encryption):",
+  JSON.stringify(requestBody, null, 2)
+)
 
-  const encryptedBody = encryptAES(JSON.stringify(requestBody))
+const isLive = process.env.UNPAY_ENV === "live"
 
-  console.log("[UnPay] Encrypted request body:", encryptedBody)
+const bodyToSend = isLive
+  ? JSON.stringify(requestBody)
+  : encryptAES(JSON.stringify(requestBody))
+
+  if (!isLive) {
+    console.log("[UnPay] Encrypted request body:", bodyToSend)
+  }
 
   try {
-    const resp = await unpayClient.post(
-        "/payin/order/create",
-        encryptedBody
-      )
+    const resp = await unpayClient.post("/payin/order/create", bodyToSend)
 
 
     console.log(
@@ -248,11 +249,25 @@ export async function createUnpayDynamicQR(payload: {
 
   console.log("[UNPAY FINAL PAYLOAD]", requestBody);
 
+  const isLive = process.env.UNPAY_ENV === "live"
+
+  console.log("[UNPAY MODE]", process.env.UNPAY_ENV)
+  console.log("[UNPAY ENCRYPTION CALLED]", !isLive)
+
+  const bodyToSend = isLive
+    ? requestBody
+    : encryptAES(JSON.stringify(requestBody))
+
+  const url = isLive
+    ? "https://api.unpay.in/next/upi/request/qr"
+    : "/next/upi/request/qr"
+
+  if (!isLive) {
+    console.log("[UnPay Dynamic QR] Encrypted request body:", bodyToSend)
+  }
+
   try {
-    const resp = await unpayClient.post(
-      "/next/upi/request/qr",
-      requestBody
-    );
+    const resp = await unpayClient.post(url, bodyToSend)
 
     console.log(
       "[UnPay Dynamic QR] Response:",
