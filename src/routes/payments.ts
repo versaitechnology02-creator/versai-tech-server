@@ -306,7 +306,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     if ((!selectedProvider || selectedProvider === "unpay") && allowUnPay) {
       try {
         const unpayResp = await createUnpayDynamicQR({
-          amount: Math.round(amount * 100),
+          amount,
           apitxnid: order.id,
           customer_email: notes?.email,
           currency: currency,

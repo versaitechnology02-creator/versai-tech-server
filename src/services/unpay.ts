@@ -238,9 +238,7 @@ export async function createUnpayDynamicQR(payload: {
   const requestBody = {
     partner_id: UNPAY_PARTNER_ID,
     apitxnid: payload.apitxnid,
-    amount: Math.round(amount * 100),
-    currency: payload.currency || "INR",
-    customer_email: payload.customer_email || "",
+    amount: String(amount),
     webhook: webhookUrl,
     ip: serverIp,
   }
@@ -252,15 +250,10 @@ export async function createUnpayDynamicQR(payload: {
 
   console.log("[UNPAY FINAL PAYLOAD]", requestBody);
 
-  const encryptedBody = encryptAES(JSON.stringify(requestBody))
-
-  console.log("[UnPay Dynamic QR] Encrypted body:", encryptedBody)
-
-  try {
-    const resp = await unpayClient.post(
-        "/next/upi/request/qr",
-        encryptedBody
-      )
+  const resp = await unpayClient.post(
+      "/next/upi/request/qr",
+      requestBody
+    )
 
     console.log(
       "[UnPay Dynamic QR] Response:",

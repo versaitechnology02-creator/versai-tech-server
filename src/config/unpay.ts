@@ -4,7 +4,7 @@ import https from "https"
 import dns from "dns"
 
 export const UNPAY_BASE_URL =
-  process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api"
+  process.env.UNPAY_BASE_URL || "https://api.unpay.in"
 
 export const UNPAY_PARTNER_ID = process.env.UNPAY_PARTNER_ID || ""
 export const UNPAY_API_KEY = process.env.UNPAY_API_KEY || ""
