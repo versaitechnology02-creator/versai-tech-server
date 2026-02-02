@@ -220,8 +220,6 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("UnPay credentials missing in environment variables")
   }
 
-  validateAesConfig()
-
   const amount = Number(payload.amount)
   if (!Number.isInteger(amount) || amount <= 0) {
     throw new Error("Amount must be a positive integer (INR)")
@@ -244,43 +242,43 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   console.log(
-    "[UnPay Dynamic QR] Request body before encryption:",
+    "[UnPay Dynamic QR] Request body:",
     JSON.stringify(requestBody, null, 2)
   )
 
   console.log("[UNPAY FINAL PAYLOAD]", requestBody);
 
   try {
-  const resp = await unpayClient.post(
+    const resp = await unpayClient.post(
       "/next/upi/request/qr",
       requestBody
-    )
+    );
 
     console.log(
       "[UnPay Dynamic QR] Response:",
       JSON.stringify(resp.data, null, 2)
-    )
+    );
 
     if (resp.data?.status !== "TXN") {
-      throw new Error(resp.data?.message || "UnPay Dynamic QR creation failed")
+      throw new Error(resp.data?.message || "UnPay Dynamic QR creation failed");
     }
 
     return {
       apitxnid: resp.data.data.apitxnid,
       qrString: resp.data.data.qrString,
       time: resp.data.data.time,
-    }
+    };
   } catch (err: any) {
     console.error("[UnPay Dynamic QR] Error (FULL):", {
       message: err.message,
       status: err.response?.status,
       data: err.response?.data,
-    })
+    });
 
     throw new Error(
       err.response?.data?.message ||
         err.response?.data?.error ||
         "UnPay Dynamic QR failed"
-    )
+    );
   }
 }
