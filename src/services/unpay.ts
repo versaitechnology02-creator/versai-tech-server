@@ -243,14 +243,18 @@ export async function createUnpayDynamicQR(payload: {
     process.env.NODE_ENV === "production" ||
     (!!process.env.SERVER_URL && process.env.SERVER_URL.includes("versaitechnology.com"))
 
-  const requestBody = {
-    partner_id: UNPAY_PARTNER_ID,
-    apitxnid: payload.apitxnid,
-    amount: String(amount),
-    webhook: webhookUrl,
-    ip: serverIp,
-    encrypted: isLiveEnv ? false : true,
-  }
+    const requestBody: any = {
+      partner_id: UNPAY_PARTNER_ID,
+      apitxnid: payload.apitxnid,
+      amount: String(amount),
+      webhook: webhookUrl,
+      ip: serverIp,
+    }
+    
+    if (!isLiveEnv) {
+      requestBody.encrypted = true
+    }
+    
 
   console.log("[PAYMENT GATEWAY MODE] [UnPay Dynamic QR]", {
     mode: isLiveEnv ? "live" : "test",
