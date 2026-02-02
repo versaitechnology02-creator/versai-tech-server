@@ -296,7 +296,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     // Call UnPay only if selected or if no provider specified (backward compatibility)
     // Determine if this environment should allow UnPay (prefer NODE_ENV, but also accept SERVER_URL)
-    const isProdEnv = process.env.NODE_ENV === 'production' || (process.env.SERVER_URL && process.env.SERVER_URL.includes('payments.versaitechnology.com'))
+    const isProdEnv = process.env.NODE_ENV === 'production' || (process.env.SERVER_URL && process.env.SERVER_URL.includes('versaitechnology.com'))
 
     // Safety: if CLIENT_URL explicitly contains localhost, treat as non-production
     const clientUrlIsLocal = !!process.env.CLIENT_URL && process.env.CLIENT_URL.includes('localhost')
