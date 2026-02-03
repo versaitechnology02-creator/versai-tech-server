@@ -243,9 +243,9 @@ export async function createUnpayDynamicQR(payload: {
     (!!process.env.SERVER_URL && process.env.SERVER_URL.includes("versaitechnology.com"))
 
   const requestBody: any = {
-    partner_id: parseInt(UNPAY_PARTNER_ID, 10),
+    partner_id: UNPAY_PARTNER_ID,
     apitxnid: payload.apitxnid,
-    amount: amount,
+    amount: amount.toString(),
     webhook: webhookUrl,
   }
     
