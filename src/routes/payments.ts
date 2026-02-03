@@ -736,9 +736,9 @@ router.get("/transaction/:orderId", async (req: Request, res: Response) => {
 })
 
 // Get All Transactions
-router.get("/transactions", (req: Request, res: Response) => {
+router.get("/transactions", async (req: Request, res: Response) => {
   try {
-    const allTransactions = Array.from(transactions.values())
+    const allTransactions = await Transaction.find({}).sort({ createdAt: -1 }).limit(100)
     res.status(200).json({
       success: true,
       data: allTransactions,
@@ -844,6 +844,7 @@ router.post("/webhook/razorpay", async (req: Request, res: Response) => {
 
 // SMEPay Webhook Handler
 router.post("/webhook/smepay", async (req: Request, res: Response) => {
+  console.log("[SMEPay Webhook] ===== WEBHOOK RECEIVED =====")
   try {
     console.log("[SMEPay Webhook] Received webhook:", {
       headers: req.headers,
