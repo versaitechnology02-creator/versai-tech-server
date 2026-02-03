@@ -244,6 +244,7 @@ router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: 
       apitxnid,
       customer_email: undefined, // Not needed for QR only
       currency: "INR",
+      webhook: webhookUrl,
     })
 
     // Store transaction in database for webhook tracking
@@ -413,6 +414,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           apitxnid: order.id,
           customer_email: notes?.email,
           currency: currency,
+          webhook: process.env.UNPAY_WEBHOOK_URL,
         })
 
         // attach unpay info to in-memory transaction
@@ -1036,12 +1038,14 @@ router.post("/webhook/unpay", async (req: Request, res: Response) => {
 
     // Determine status mapping
     let dbStatus: string
-    if (status === "success" || status === "SUCCESS") {
+    if (status === "TXN") {
       dbStatus = "completed"
-    } else if (status === "failed" || status === "FAILED") {
+    } else if (status === "TXF" || status === "ER") {
       dbStatus = "failed"
-    } else {
+    } else if (status === "TUP") {
       dbStatus = "pending"
+    } else {
+      dbStatus = "pending" // default
     }
 
     console.log(`[UnPay Webhook] Updating transaction ${txnid} to status: ${dbStatus}`)

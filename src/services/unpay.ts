@@ -214,6 +214,7 @@ export async function createUnpayDynamicQR(payload: {
   apitxnid: string
   customer_email?: string
   currency?: string
+  webhook?: string
 }) {
   console.log("[UnPay Dynamic QR] Payload:", payload)
 
@@ -226,12 +227,10 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Amount must be a positive integer (INR)")
   }
 
-  // ✅ Get valid server IP (shared for both TEST and LIVE)
-  const serverIp = await getUnpayIp()
-
-  const webhookUrl = process.env.UNPAY_WEBHOOK_URL
+  // Use provided webhook or default
+  const webhookUrl = payload.webhook || process.env.UNPAY_WEBHOOK_URL
   if (!webhookUrl) {
-    throw new Error("UNPAY_WEBHOOK_URL environment variable is required")
+    throw new Error("Webhook URL is required")
   }
 
   // ======================================================
@@ -243,13 +242,12 @@ export async function createUnpayDynamicQR(payload: {
     process.env.NODE_ENV === "production" ||
     (!!process.env.SERVER_URL && process.env.SERVER_URL.includes("versaitechnology.com"))
 
-    const requestBody: any = {
-      partner_id: UNPAY_PARTNER_ID,
-      apitxnid: payload.apitxnid,
-      amount: String(amount),
-      webhook: webhookUrl,
-      ip: serverIp,
-    }
+  const requestBody: any = {
+    partner_id: parseInt(UNPAY_PARTNER_ID, 10),
+    apitxnid: payload.apitxnid,
+    amount: amount,
+    webhook: webhookUrl,
+  }
     
 
   console.log("[PAYMENT GATEWAY MODE] [UnPay Dynamic QR]", {
@@ -266,11 +264,9 @@ export async function createUnpayDynamicQR(payload: {
   })
 
   console.log(
-    "[UnPay Dynamic QR] Request body:",
+    "[UnPay Dynamic QR] Request body before encryption:",
     JSON.stringify(requestBody, null, 2)
   )
-
-  console.log("[UNPAY FINAL PAYLOAD]", requestBody);
 
   // Always encrypt the body as per documentation
   const encryptedBody = encryptAES(JSON.stringify(requestBody))
