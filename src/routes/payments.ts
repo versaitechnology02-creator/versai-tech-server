@@ -215,6 +215,77 @@ router.get("/settlements", (req: Request, res: Response) => {
   }
 })
 
+// Create QR Code
+router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: Response) => {
+  try {
+    const { amount, apitxnid, webhook } = req.body
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid amount",
+      })
+    }
+
+    if (!apitxnid) {
+      return res.status(400).json({
+        success: false,
+        message: "apitxnid is required",
+      })
+    }
+
+    // Use provided webhook or default
+    const webhookUrl = webhook || process.env.UNPAY_WEBHOOK_URL || `https://payments.versaitechnology.com/api/payments/webhook/unpay`
+
+    console.log("[Create QR] Creating QR with payload:", { amount, apitxnid, webhook: webhookUrl })
+
+    const qrResponse = await createUnpayDynamicQR({
+      amount,
+      apitxnid,
+      customer_email: undefined, // Not needed for QR only
+      currency: "INR",
+    })
+
+    // Store transaction in database for webhook tracking
+    try {
+      await Transaction.create({
+        userId: req.user?.id,
+        orderId: apitxnid,
+        paymentId: "",
+        amount,
+        currency: "INR",
+        status: "pending",
+        customer: {
+          name: "",
+          email: "",
+          phone: "",
+        },
+        description: "QR Code Payment",
+        notes: {
+          qr_created: true,
+          unpay_qr: qrResponse,
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any)
+    } catch (err) {
+      console.error("Failed to persist QR transaction:", err)
+    }
+
+    res.status(201).json({
+      success: true,
+      message: "QR Code Generated Successfully",
+      data: qrResponse,
+    })
+  } catch (error: any) {
+    console.error("Error creating QR code:", error)
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to create QR code",
+    })
+  }
+})
+
 // Create Order
 router.post("/create-order", authMiddleware, isVerified, async (req: Request, res: Response) => {
   try {
