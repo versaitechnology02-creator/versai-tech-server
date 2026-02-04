@@ -409,16 +409,23 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     if ((!selectedProvider || selectedProvider === "unpay") && allowUnPay) {
       try {
+        console.log("[UnPay][create-order] Requesting Dynamic QR with:", {
+          amount,
+          apitxnid: order.id,
+          customer_email: notes?.email,
+          currency: currency,
+          webhook: process.env.UNPAY_WEBHOOK_URL,
+        });
         const unpayResp = await createUnpayDynamicQR({
           amount,
           apitxnid: order.id,
           customer_email: notes?.email,
           currency: currency,
           webhook: process.env.UNPAY_WEBHOOK_URL,
-        })
+        });
 
         // attach unpay info to in-memory transaction
-        ;(transaction as any).unpay = unpayResp
+        ;(transaction as any).unpay = unpayResp;
 
         // update DB record with unpay qr info
         try {
@@ -426,22 +433,33 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
             { orderId: order.id },
             { $set: { "notes.unpay": unpayResp, updatedAt: new Date() } },
             { upsert: false },
-          )
+          );
         } catch (err) {
-          console.error("Failed to update DB with Unpay response:", err)
+          console.error("Failed to update DB with Unpay response:", err);
         }
       } catch (err: any) {
-        console.warn("Unpay call failed (non-fatal):", err.message)
-        ;(transaction as any).unpay_error = err.message
-        // If UnPay was specifically selected and failed, surface the error
+        console.warn("Unpay call failed (non-fatal):", err.message, err?.response?.data || "");
+        ;(transaction as any).unpay_error = err.message;
+        // If UnPay was specifically selected and failed, surface the error and details
         if (selectedProvider === "unpay") {
-          ;(transaction as any).unpay_critical_error = err.message
+          ;(transaction as any).unpay_critical_error = err.message + (err?.response?.data ? ": " + JSON.stringify(err.response.data) : "");
+        }
+        // Return the actual UnPay error to the frontend if provider is unpay
+        if (selectedProvider === "unpay") {
+          return res.status(400).json({
+            success: false,
+            message: `UnPay error: ${err.message}` + (err?.response?.data ? ", Details: " + JSON.stringify(err.response.data) : ""),
+          });
         }
       }
     } else if (selectedProvider === "unpay" && !allowUnPay) {
       // If UnPay is specifically selected but we're not in production, show error
-      ;(transaction as any).unpay_error = "UnPay is not available in local development environment"
-      ;(transaction as any).unpay_critical_error = "UnPay is not available in local development environment"
+      ;(transaction as any).unpay_error = "UnPay is not available in local development environment";
+      ;(transaction as any).unpay_critical_error = "UnPay is not available in local development environment";
+      return res.status(400).json({
+        success: false,
+        message: "UnPay is not available in local development environment",
+      });
     }
 
     // Call Razorpay Payment Link and QR Code creation if selected
