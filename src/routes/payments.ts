@@ -942,18 +942,31 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
 
     const { status, amount, transaction_id } = body
 
-    // Determine status mapping (assuming SMEPay uses similar status values)
+    // Map SMEPay status values to internal status
+    // SMEPay docs: SUCCESS, FAILED, PENDING
     let dbStatus: string
-    if (status === "success" || status === "SUCCESS" || status === "completed") {
-      dbStatus = "completed"
-    } else if (status === "failed" || status === "FAILED") {
-      dbStatus = "failed"
-    } else {
-      dbStatus = "pending"
+    let statusDisplay: string = "";
+    switch ((status || "").toUpperCase()) {
+      case "SUCCESS":
+        dbStatus = "completed";
+        statusDisplay = "Payment completed successfully ✅";
+        break;
+      case "FAILED":
+        dbStatus = "failed";
+        statusDisplay = "Payment failed ❌";
+        break;
+      case "PENDING":
+        dbStatus = "pending";
+        statusDisplay = "Payment in progress ⏳";
+        break;
+      default:
+        dbStatus = "pending";
+        statusDisplay = `Unknown status: ${status}`;
+        break;
     }
 
     console.log("[SMEPay Webhook] Candidate orderIds for lookup:", candidateIds)
-    console.log("[SMEPay Webhook] Resolved dbStatus:", dbStatus)
+    console.log("[SMEPay Webhook] Resolved dbStatus:", dbStatus, "Display:", statusDisplay)
 
     // Update transaction in database using any of the candidate IDs
     try {
@@ -967,6 +980,7 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
             "notes.smepay_webhook": {
               received_at: new Date(),
               status,
+              status_display: statusDisplay,
               amount,
               transaction_id,
               candidate_order_ids: candidateIds,
@@ -986,7 +1000,9 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
         "[SMEPay Webhook] Successfully updated transaction",
         updateResult.orderId,
         "to status:",
-        dbStatus
+        dbStatus,
+        "Display:",
+        statusDisplay
       )
     } catch (err: any) {
       console.error("[SMEPay Webhook] Database update failed:", err.message)
