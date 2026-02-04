@@ -14,7 +14,7 @@
 - **Full URL:** `https://unpay.in/tech/api/next/upi/request/qr`
 - **Method:** `POST`
 
-**Note:** Hum production mein Option A use kar rahe hain. Server par `https://unpay.in/tech/api` resolve nahi ho raha (DNS: `getaddrinfo ENOTFOUND https://unpay.in/tech/api`), isliye agar live API alag host pe hai to bata dein.
+**Note:** Hum production mein Option A use kar rahe hain. Request body ko encrypt karna padta hai (AES encryption with body field).
 
 ---
 
@@ -47,7 +47,7 @@
 - `webhook` – Callback URL jahan UnPay status bhejega
 - `ip` – Server public IP (whitelisted)
 
-LIVE mode mein hum **plain JSON** bhej rahe hain (no AES encryption, no `body` field).
+LIVE mode mein hum **encrypted JSON** bhej rahe hain (AES encryption with `body` field).
 
 ---
 

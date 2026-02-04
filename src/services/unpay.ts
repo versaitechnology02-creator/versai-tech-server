@@ -265,7 +265,7 @@ export async function createUnpayDynamicQR(payload: {
     SERVER_URL: process.env.SERVER_URL,
   })
 
-  const encryptionEnabled = !isLiveEnv // Encrypt only for test, not for live
+  const encryptionEnabled = true // Always encrypt for UnPay API
 
   console.log("[PAYMENT ENCRYPTION STATUS] [UnPay Dynamic QR]", {
     encryptionEnabled,
