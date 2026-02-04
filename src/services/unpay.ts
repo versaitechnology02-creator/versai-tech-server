@@ -247,6 +247,15 @@ export async function createUnpayDynamicQR(payload: {
     amount: amount.toString(),
     webhook: webhookUrl,
   }
+
+  // Add IP for whitelisting
+  try {
+    const ip = await getUnpayIp()
+    requestBody.ip = ip
+    console.log("[UnPay] Using IP:", ip)
+  } catch (err) {
+    console.warn("[UnPay] Failed to get IP, proceeding without:", err.message)
+  }
     
 
   console.log("[PAYMENT GATEWAY MODE] [UnPay Dynamic QR]", {
@@ -256,7 +265,7 @@ export async function createUnpayDynamicQR(payload: {
     SERVER_URL: process.env.SERVER_URL,
   })
 
-  const encryptionEnabled = true // Always encrypt as per documentation
+  const encryptionEnabled = !isLiveEnv // Encrypt only for test, not for live
 
   console.log("[PAYMENT ENCRYPTION STATUS] [UnPay Dynamic QR]", {
     encryptionEnabled,
@@ -267,11 +276,17 @@ export async function createUnpayDynamicQR(payload: {
     JSON.stringify(requestBody, null, 2)
   )
 
-  // Always encrypt the body as per documentation
-  const encryptedBody = encryptAES(JSON.stringify(requestBody))
-  const bodyToSend = JSON.stringify({ body: encryptedBody })
-
-  console.log("[UnPay Dynamic QR] Encrypted request body:", bodyToSend)
+  let bodyToSend: any
+  if (encryptionEnabled) {
+    // Encrypt the body for test mode
+    const encryptedBody = encryptAES(JSON.stringify(requestBody))
+    bodyToSend = JSON.stringify({ body: encryptedBody })
+    console.log("[UnPay Dynamic QR] Encrypted request body:", bodyToSend)
+  } else {
+    // Send plain JSON for live mode
+    bodyToSend = requestBody
+    console.log("[UnPay Dynamic QR] Plain request body:", JSON.stringify(bodyToSend, null, 2))
+  }
 
   try {
     const resp = await unpayClient.post("/next/upi/request/qr", bodyToSend)
