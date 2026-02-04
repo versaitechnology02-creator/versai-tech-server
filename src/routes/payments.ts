@@ -296,10 +296,14 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     const { amount, currency = "INR", description, customer_id, receipt, notes, provider } = req.body as CreateOrderRequest & { provider?: string }
 
     if (!amount || amount <= 0) {
+      console.error("[Create Order] Validation Error: Invalid amount", {
+        body: req.body
+      });
       return res.status(400).json({
         success: false,
         message: "Invalid amount",
-      })
+        debug: { body: req.body }
+      });
     }
 
     const order: any = await (razorpay as any).orders.create({
@@ -326,9 +330,9 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       notes,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }
+    };
 
-    transactions.set(order.id, transaction)
+    transactions.set(order.id, transaction);
 
     // Persist to MongoDB (userId optional)
     try {
@@ -348,9 +352,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         notes: notes || {},
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as any)
+      } as any);
     } catch (err) {
-      console.error("Failed to persist transaction:", err)
+      console.error("[Create Order] Failed to persist transaction:", err, {
+        body: req.body
+      });
     }
 
     // Call only the selected provider (or both if no provider specified for backward compatibility)
