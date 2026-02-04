@@ -49,6 +49,10 @@ export async function createSmepayTransaction(payload: {
   metadata?: Record<string, any>
 }) {
   console.log("[SMEPay] Creating transaction with payload:", payload)
+
+  // Extra: Log callback_url and SMEPAY_BASE_URL for debugging
+  console.log("[SMEPay] Using callback_url:", process.env.SMEPAY_CALLBACK_URL)
+  console.log("[SMEPay] SMEPAY_BASE_URL:", SMEPAY_BASE_URL)
   const token = await getSmepayToken()
 
   const body = {
@@ -69,25 +73,40 @@ export async function createSmepayTransaction(payload: {
 
   console.log("[SMEPay] Request body:", JSON.stringify(body, null, 2))
 
-  const resp = await smepayApiClient
-    .post("/wiz/external/order/create", body, {
+  let resp;
+  try {
+    resp = await smepayApiClient.post("/wiz/external/order/create", body, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
-    })
-    .catch((err) => {
-      console.error("[SMEPay] Create order error:", {
-        status: err.response?.status,
-        data: err.response?.data,
-        message: err.message
-      })
-      throw new Error(`SMEPay create-order failed: ${err.response?.data?.message || err.message}`)
-    })
+    });
+  } catch (err) {
+    const error = err as any;
+    console.error("[SMEPay] Create order error:", {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message
+    });
+    if (error.response?.data) {
+      // Log full error response for debugging
+      console.error("[SMEPay] Full error response:", JSON.stringify(error.response.data, null, 2));
+    }
+    throw new Error(`SMEPay create-order failed: ${error.response?.data?.message || error.message}`);
+  }
 
-  console.log("[SMEPay] Create order response:", JSON.stringify(resp.data, null, 2))
+  console.log("[SMEPay] Create order response:", JSON.stringify(resp.data, null, 2));
 
   const raw = resp.data
   const data = raw?.data || raw
+
+  // Log payment_url and related fields for debugging
+  console.log("[SMEPay] payment_url:", data?.payment_url)
+  console.log("[SMEPay] checkout_url:", data?.checkout_url)
+  console.log("[SMEPay] redirect_url:", data?.redirect_url)
+  console.log("[SMEPay] url:", data?.url)
+  console.log("[SMEPay] link:", data?.link)
+  console.log("[SMEPay] paymentLink:", data?.paymentLink)
+  console.log("[SMEPay] slug:", data?.slug)
 
   // Helper to find first string value whose key matches regex (depth-limited)
   const findValue = (obj: any, regex: RegExp, depth = 0): string | undefined => {
@@ -133,5 +152,18 @@ export async function createSmepayTransaction(payload: {
     order_slug: slug,
     payment_url: paymentUrl,
     checkout_url: paymentUrl,
+    // Extra: log for frontend debugging
+    _debug: {
+      paymentUrl,
+      slug,
+      allUrls: {
+        payment_url: data?.payment_url,
+        checkout_url: data?.checkout_url,
+        redirect_url: data?.redirect_url,
+        url: data?.url,
+        link: data?.link,
+        paymentLink: data?.paymentLink,
+      }
+    }
   }
 }
