@@ -131,55 +131,33 @@ export async function createUnpayTransaction(payload: {
     throw new Error("Amount must be a positive integer (rupees)")
   }
 
+  // Use correct UnPay order creation endpoint and parameters as per latest docs/support
   const orderId =
     payload.metadata?.razorpay_order_id ||
     payload.metadata?.order_id ||
-    `unpay_${Date.now()}`
+    `ANTBBPS${Date.now()}`;
 
-  const callbackUrl = process.env.UNPAY_CALLBACK_URL || 
-                     process.env.SERVER_URL || 
-                     `https://payments.versaitechnology.com/api/payments/webhook/unpay`
+  const webhookUrl = process.env.UNPAY_WEBHOOK_URL || process.env.UNPAY_CALLBACK_URL || process.env.SERVER_URL || "https://payments.versaitechnology.com/api/payments/webhook/unpay";
 
-  // ✅ Get valid server IP
-  const serverIp = await getUnpayIp()
-
+  // Build parameter object as per support message and docs
   const requestBody: any = {
     partner_id: UNPAY_PARTNER_ID,
-    txnid: orderId,
-    amount: String(amount),
-    currency: payload.currency || "INR",
-    callback: callbackUrl,
-    ip: serverIp,
-  }
+    apitxnid: orderId,
+    amount: amount,
+    webhook: webhookUrl,
+  };
 
-console.log(
-  "[UnPay] Request body (before encryption):",
-  JSON.stringify(requestBody, null, 2)
-)
+  console.log("[UnPay] Request body (for /payin/order/create):", JSON.stringify(requestBody, null, 2));
 
-const isLive = process.env.UNPAY_ENV === "live"
-
-const bodyToSend = isLive
-  ? JSON.stringify(requestBody)
-  : encryptAES(JSON.stringify(requestBody))
-
-  if (!isLive) {
-    console.log("[UnPay] Encrypted request body:", bodyToSend)
-  }
-
+  // Always send as JSON (no encryption for this endpoint)
   try {
-    const resp = await unpayClient.post("/payin/order/create", bodyToSend)
+    const resp = await unpayClient.post("/payin/order/create", requestBody);
 
+    console.log("[UnPay] Create payment response:", JSON.stringify(resp.data, null, 2));
 
-    console.log(
-      "[UnPay] Create payment response:",
-      JSON.stringify(resp.data, null, 2)
-    )
-
-    const data = resp.data
-
+    const data = resp.data;
     if (data.statuscode !== "TXN") {
-      throw new Error(data.message || "UnPay order creation failed")
+      throw new Error(data.message || "UnPay order creation failed");
     }
 
     return {
@@ -188,21 +166,19 @@ const bodyToSend = isLive
       transaction_id: data.upi_tr || data.txnid,
       upi_reference: data.upi_tr,
       upi_intent: data.upi_string,
-      payment_url:
-        data.upi_string || data.upi_intent || data.payment_link,
-    }
+      payment_url: data.upi_string || data.upi_intent || data.payment_link,
+    };
   } catch (err: any) {
     console.error("[UnPay] Create payment error (FULL):", {
       message: err.message,
       status: err.response?.status,
       data: err.response?.data,
-    })
-
+    });
     throw new Error(
       err.response?.data?.message ||
         err.response?.data?.error ||
         "UnPay transaction failed"
-    )
+    );
   }
 }
 

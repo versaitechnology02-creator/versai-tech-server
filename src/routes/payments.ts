@@ -919,11 +919,17 @@ router.post("/webhook/razorpay", async (req: Request, res: Response) => {
 router.post("/webhook/smepay", async (req: Request, res: Response) => {
   console.log("[SMEPay Webhook] ===== WEBHOOK RECEIVED =====")
   try {
-    console.log("[SMEPay Webhook] Received webhook:", {
+    // Log all incoming webhook data for debugging
+    const webhookLog = {
+      received_at: new Date(),
       headers: req.headers,
       body: req.body,
       query: req.query,
-    })
+      remoteAddress: req.socket?.remoteAddress,
+      remoteFamily: req.socket?.remoteFamily,
+      remotePort: req.socket?.remotePort,
+    };
+    console.log("[SMEPay Webhook] Received webhook:", webhookLog);
 
     // SMEPay may send different identifiers; prefer order_id but fall back to ref_id
     const body = req.body as any
@@ -986,6 +992,13 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
               candidate_order_ids: candidateIds,
               raw_payload: body,
             },
+            // Append webhook log for debugging (keep last 10 logs)
+            $push: {
+              "notes.smepay_webhook_logs": {
+                $each: [webhookLog],
+                $slice: -10
+              }
+            }
           },
         },
         { upsert: false, new: true }
@@ -1005,6 +1018,24 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
         statusDisplay
       )
     } catch (err: any) {
+      // Log error to DB for debugging
+      try {
+        await Transaction.updateOne(
+          { orderId: { $in: candidateIds } },
+          {
+            $push: {
+              "notes.smepay_webhook_error_logs": {
+                received_at: new Date(),
+                error: err.message,
+                stack: err.stack,
+                webhookLog,
+              }
+            }
+          }
+        );
+      } catch (logErr) {
+        console.error("[SMEPay Webhook] Failed to log DB error:", logErr);
+      }
       console.error("[SMEPay Webhook] Database update failed:", err.message)
       return res.status(500).json({ success: false, message: "Database update failed" })
     }
