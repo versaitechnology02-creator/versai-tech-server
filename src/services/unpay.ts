@@ -1,6 +1,9 @@
 import axios from "axios"
 import crypto from "crypto"
 import net from "net"
+import dns from "dns"
+import http from "http"
+import https from "https"
 
 // Config import
 import {
@@ -8,19 +11,39 @@ import {
   UNPAY_API_KEY,
   UNPAY_AES_KEY,
   UNPAY_IV,
+  UNPAY_BASE_URL,
 } from "../config/unpay"
+
+// ======================
+// DNS Lookup for IPv4
+// ======================
+const lookup4 = (
+  hostname: string,
+  options: any,
+  callback?: (err: NodeJS.ErrnoException | null, address: string) => void
+) => {
+  if (typeof options === "function") {
+    return dns.lookup(hostname, { family: 4 }, options)
+  }
+  return dns.lookup(hostname, { family: 4 }, callback as any)
+}
+
+const httpAgent = new http.Agent({ lookup: lookup4 })
+const httpsAgent = new https.Agent({ lookup: lookup4 })
 
 // ======================
 // Axios client
 // ======================
 const unpayClient = axios.create({
-  baseURL: "https://unpay.in/tech/api",
+  baseURL: UNPAY_BASE_URL,
   timeout: 15000,
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
     "api-key": UNPAY_API_KEY,
   },
+  httpAgent,
+  httpsAgent,
 })
 
 // ======================
