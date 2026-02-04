@@ -7,14 +7,14 @@
 ## 1. API URL (jo hum hit kar rahe hain)
 
 ### Option A – LIVE (production)
-- **Full URL:** `https://api.unpay.in/next/upi/request/qr`
+- **Full URL:** `https://unpay.in/tech/api/next/upi/request/qr`
 - **Method:** `POST`
 
 ### Option B – Tech API (agar aap ye base use karte ho)
 - **Full URL:** `https://unpay.in/tech/api/next/upi/request/qr`
 - **Method:** `POST`
 
-**Note:** Hum production mein Option A use kar rahe hain. Server par `api.unpay.in` resolve nahi ho raha (DNS: `getaddrinfo ENOTFOUND api.unpay.in`), isliye agar live API alag host pe hai to bata dein.
+**Note:** Hum production mein Option A use kar rahe hain. Request body ko encrypt karna padta hai (AES encryption with body field).
 
 ---
 
@@ -47,7 +47,7 @@
 - `webhook` – Callback URL jahan UnPay status bhejega
 - `ip` – Server public IP (whitelisted)
 
-LIVE mode mein hum **plain JSON** bhej rahe hain (no AES encryption, no `body` field).
+LIVE mode mein hum **encrypted JSON** bhej rahe hain (AES encryption with `body` field).
 
 ---
 
@@ -55,7 +55,7 @@ LIVE mode mein hum **plain JSON** bhej rahe hain (no AES encryption, no `body` f
 
 ### Postman
 - **Method:** POST  
-- **URL:** `https://api.unpay.in/next/upi/request/qr`  
+- **URL:** `https://unpay.in/tech/api/next/upi/request/qr`  
 - **Headers:**  
   - `Content-Type`: `application/json`  
   - `Accept`: `application/json`  
@@ -73,7 +73,7 @@ LIVE mode mein hum **plain JSON** bhej rahe hain (no AES encryption, no `body` f
 
 ### cURL
 ```bash
-curl -X POST "https://api.unpay.in/next/upi/request/qr" \
+curl -X POST "https://unpay.in/tech/api/next/upi/request/qr" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json" \
   -H "api-key: YOUR_UNPAY_API_KEY" \
@@ -91,12 +91,12 @@ curl -X POST "https://api.unpay.in/next/upi/request/qr" \
 ## 5. Error jo aa raha hai
 
 - **Message:** `Invalid encryption request or body value missing`
-- **DNS (kisi servers par):** `getaddrinfo ENOTFOUND api.unpay.in`
+- **DNS (kisi servers par):** `getaddrinfo ENOTFOUND https://unpay.in/tech/api`
 
 Hum LIVE mein encrypted body nahi bhej rahe, sirf above JSON. Batayein:
 - LIVE Dynamic QR ke liye exact URL kya hai?
 - Request body format (plain JSON ya encrypted) kya hona chahiye?
-- `api.unpay.in` vs `unpay.in/tech/api` – kaunsa use karna hai?
+- `https://unpay.in/tech/api` vs `unpay.in/tech/api` – kaunsa use karna hai?
 
 ---
 
