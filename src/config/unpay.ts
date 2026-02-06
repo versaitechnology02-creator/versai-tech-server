@@ -3,8 +3,10 @@ import http from "http"
 import https from "https"
 import dns from "dns"
 
-export const UNPAY_BASE_URL =
-  process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api"
+export const UNPAY_BASE_URL = process.env.UNPAY_BASE_URL
+if (!UNPAY_BASE_URL) {
+  throw new Error("UNPAY_BASE_URL is not configured")
+}
 
 // Runtime confirmation of Unpay URL
 console.log("✅ UNPAY URL AT RUNTIME =", UNPAY_BASE_URL)
