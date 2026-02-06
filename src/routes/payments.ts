@@ -5,6 +5,7 @@ import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
 import Transaction from "../models/Transaction"
+import User from "../models/User"
 import authMiddleware from "../middleware/authMiddleware"
 import isVerified from "../middleware/isVerified"
 
@@ -836,9 +837,28 @@ router.get("/transaction/:orderId", async (req: Request, res: Response) => {
 })
 
 // Get All Transactions
-router.get("/transactions", async (req: Request, res: Response) => {
+router.get("/transactions", authMiddleware, async (req: Request, res: Response) => {
   try {
-    const allTransactions = await Transaction.find({}).sort({ createdAt: -1 }).limit(100)
+    const userId = (req as any).user?.id
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      })
+    }
+
+    // Check if user is admin
+    const user = await User.findById(userId)
+    const isAdmin = user?.isAdmin === true
+
+    // Define query based on role
+    // If admin, empty query {} (fetch all)
+    // If user, filter by userId
+    const query = isAdmin ? {} : { userId: userId }
+
+    const allTransactions = await Transaction.find(query).sort({ createdAt: -1 }).limit(100)
+
     res.status(200).json({
       success: true,
       data: allTransactions,
