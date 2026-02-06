@@ -852,12 +852,17 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
     const user = await User.findById(userId)
     const isAdmin = user?.isAdmin === true
 
-    // Define query based on role
-    // If admin, empty query {} (fetch all)
-    // If user, filter by userId
-    const query = isAdmin ? {} : { userId: userId }
+    let allTransactions;
+    if (isAdmin) {
+      console.log(`[GET /transactions] Admin access for user ${userId}. Fetching all.`)
+      allTransactions = await Transaction.find({}).sort({ createdAt: -1 }).limit(100)
+    } else {
+      console.log(`[GET /transactions] User access for user ${userId}. Filtering by userId.`)
+      // Ensure strict filtering
+      allTransactions = await Transaction.find({ userId: userId }).sort({ createdAt: -1 }).limit(100)
+    }
 
-    const allTransactions = await Transaction.find(query).sort({ createdAt: -1 }).limit(100)
+    console.log(`[GET /transactions] Found ${allTransactions.length} transactions`)
 
     res.status(200).json({
       success: true,
