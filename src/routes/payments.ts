@@ -864,22 +864,29 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
       console.log(`[GET /transactions] DECISION: ALLOW ALL (Admin Access)`)
       allTransactions = await Transaction.find({}).sort({ createdAt: -1 }).limit(100)
     } else {
-      console.log(`[GET /transactions] User access for user ${userId}. Filtering by strict userId.`)
-
-      // STRICT FILTERING: Cast to ObjectId to ensure type matching
-      // If transactions were saved with string IDs, this might fail matching, so we try both to be safe but restrictive? 
-      // No, best practice is to match the schema type. Schema says ObjectId.
-      // We will try to match exactly what is in the DB.
+      console.log(`[GET /transactions] DECISION: FILTER (User Access)`)
 
       const mongoose = require("mongoose");
       const userObjectId = new mongoose.Types.ObjectId(userId);
 
-      allTransactions = await Transaction.find({
-        userId: userObjectId
-      }).sort({ createdAt: -1 }).limit(100)
+      console.log(`[GET /transactions] FILTERING BY: { userId: ${userObjectId} }`)
+
+      // FAILSAFE: Ensure we NEVER pass an empty query for non-admins
+      const query = { userId: userObjectId };
+
+      allTransactions = await Transaction.find(query).sort({ createdAt: -1 }).limit(100)
+
+      // DOUBLE CHECK FAILSAFE
+      if (allTransactions.length > 0) {
+        const sample = allTransactions[0];
+        if (sample.userId && sample.userId.toString() !== userId) {
+          console.error(`[GET /transactions] SECURITY ALERT: Leaked transaction ${sample._id} for user ${userId}. Returning empty list.`);
+          allTransactions = [];
+        }
+      }
     }
 
-    console.log(`[GET /transactions] Found ${allTransactions.length} transactions for user role`)
+    console.log(`[GET /transactions] RETURN: Found ${JSON.stringify(allTransactions?.length || 0)} transactions`)
 
     res.status(200).json({
       success: true,
