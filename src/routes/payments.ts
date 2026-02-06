@@ -234,8 +234,8 @@ router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: 
       })
     }
 
-    // Use provided webhook or default
-    const webhookUrl = webhook || process.env.UNPAY_WEBHOOK_URL || `https://payments.versaitechnology.com/api/payments/webhook/unpay`
+    // Use provided webhook or default (✅ FIXED: Use correct production webhook URL)
+    const webhookUrl = webhook || process.env.UNPAY_WEBHOOK_URL || `https://api.versaitechnology.com/api/payments/webhook/unpay`
 
     console.log("[Create QR] Creating QR with payload:", { amount, apitxnid, webhook: webhookUrl })
 

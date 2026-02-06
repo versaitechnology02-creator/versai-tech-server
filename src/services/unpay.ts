@@ -5,7 +5,7 @@ import dns from "dns"
 import http from "http"
 import https from "https"
 
-// Config import
+// Config import (✅ FIX #5: Import unpayClient from config to avoid duplication)
 import {
   UNPAY_PARTNER_ID,
   UNPAY_API_KEY,
@@ -13,38 +13,7 @@ import {
   UNPAY_IV,
   UNPAY_BASE_URL,
 } from "../config/unpay"
-
-// ======================
-// DNS Lookup for IPv4
-// ======================
-const lookup4 = (
-  hostname: string,
-  options: any,
-  callback?: (err: NodeJS.ErrnoException | null, address: string) => void
-) => {
-  if (typeof options === "function") {
-    return dns.lookup(hostname, { family: 4 }, options)
-  }
-  return dns.lookup(hostname, { family: 4 }, callback as any)
-}
-
-const httpAgent = new http.Agent({ lookup: lookup4 })
-const httpsAgent = new https.Agent({ lookup: lookup4 })
-
-// ======================
-// Axios client
-// ======================
-const unpayClient = axios.create({
-  baseURL: UNPAY_BASE_URL,
-  timeout: 15000,
-  headers: {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    "api-key": UNPAY_API_KEY,
-  },
-  httpAgent,
-  httpsAgent,
-})
+import unpayClient from "../config/unpay"
 
 // ======================
 // AES Encryption / Decryption
@@ -160,7 +129,8 @@ export async function createUnpayTransaction(payload: {
     payload.metadata?.order_id ||
     `ANTBBPS${Date.now()}`;
 
-  const webhookUrl = process.env.UNPAY_WEBHOOK_URL || process.env.UNPAY_CALLBACK_URL || process.env.SERVER_URL || "https://payments.versaitechnology.com/api/payments/webhook/unpay";
+  // ✅ FIX: Use correct production webhook URL as final fallback
+  const webhookUrl = process.env.UNPAY_WEBHOOK_URL || process.env.UNPAY_CALLBACK_URL || process.env.SERVER_URL || "https://api.versaitechnology.com/api/payments/webhook/unpay";
 
   // Build parameter object as per support message and docs
   const requestBody: any = {
@@ -265,27 +235,30 @@ export async function createUnpayDynamicQR(payload: {
     SERVER_URL: process.env.SERVER_URL,
   })
 
-  const encryptionEnabled = true // Always encrypt for UnPay API
+  // ✅ FIX: Only encrypt for TEST mode, never for LIVE production
+  const encryptionEnabled = !isLiveEnv
 
   console.log("[PAYMENT ENCRYPTION STATUS] [UnPay Dynamic QR]", {
     encryptionEnabled,
+    isLiveEnv,
+    reason: isLiveEnv ? "production_mode_no_encryption" : "test_mode_with_encryption",
   })
 
   console.log(
-    "[UnPay Dynamic QR] Request body before encryption:",
+    "[UnPay Dynamic QR] Request body before processing:",
     JSON.stringify(requestBody, null, 2)
   )
 
   let bodyToSend: any
   if (encryptionEnabled) {
-    // Encrypt the body for test mode
+    // Encrypt the body for TEST mode only
     const encryptedBody = encryptAES(JSON.stringify(requestBody))
     bodyToSend = JSON.stringify({ body: encryptedBody })
-    console.log("[UnPay Dynamic QR] Encrypted request body:", bodyToSend)
+    console.log("[UnPay Dynamic QR] TEST MODE - Encrypted request body sent")
   } else {
-    // Send plain JSON for live mode
+    // Send plain JSON for LIVE mode (Unpay requires unencrypted payloads)
     bodyToSend = requestBody
-    console.log("[UnPay Dynamic QR] Plain request body:", JSON.stringify(bodyToSend, null, 2))
+    console.log("[UnPay Dynamic QR] LIVE MODE - Plain JSON request body:", JSON.stringify(bodyToSend, null, 2))
   }
 
   try {
