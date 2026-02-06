@@ -6,6 +6,9 @@ import dns from "dns"
 export const UNPAY_BASE_URL =
   process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api"
 
+// Runtime confirmation of Unpay URL
+console.log("✅ UNPAY URL AT RUNTIME =", UNPAY_BASE_URL)
+
 export const UNPAY_PARTNER_ID = process.env.UNPAY_PARTNER_ID || ""
 export const UNPAY_API_KEY = process.env.UNPAY_API_KEY || ""
 export const UNPAY_AES_KEY = process.env.UNPAY_AES_KEY || ""
