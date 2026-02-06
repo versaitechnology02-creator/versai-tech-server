@@ -254,7 +254,7 @@ router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: 
     // Store transaction in database for webhook tracking
     try {
       await Transaction.create({
-        userId: req.user?.id,
+        userId: (req as any).user?.id,
         orderId: apitxnid,
         paymentId: "",
         amount,
@@ -341,7 +341,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // Persist to MongoDB (userId optional)
     try {
       await Transaction.create({
-        userId: notes?.customer_id || null,
+        userId: (req as any).user?.id,
         orderId: order.id,
         paymentId: "",
         amount,
@@ -857,19 +857,15 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
     }
 
     const isAdmin = user.isAdmin === true
-    console.log(`[GET /transactions] ACCESS CHECK: Email=${user.email}, ID=${user._id}, isAdmin=${isAdmin}`)
 
     let allTransactions;
     if (isAdmin) {
-      console.log(`[GET /transactions] DECISION: ALLOW ALL (Admin Access)`)
       allTransactions = await Transaction.find({}).sort({ createdAt: -1 }).limit(100)
     } else {
-      console.log(`[GET /transactions] DECISION: FILTER (User Access)`)
 
       const mongoose = require("mongoose");
       const userObjectId = new mongoose.Types.ObjectId(userId);
 
-      console.log(`[GET /transactions] FILTERING BY: { userId: ${userObjectId} }`)
 
       // FAILSAFE: Ensure we NEVER pass an empty query for non-admins
       const query = { userId: userObjectId };

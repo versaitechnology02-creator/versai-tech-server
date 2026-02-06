@@ -1,3 +1,33 @@
+export async function sendResetPasswordEmail(email: string, token: string) {
+  try {
+    const t = await getTransporter();
+    transporter = t;
+    const resetUrl = `${process.env.CLIENT_URL || "http://localhost:3000"}/auth/reset-password-confirm?token=${token}`;
+    const info = await transporter.sendMail({
+      from: EMAIL_FROM || `Versai Tech <no-reply@localhost>`,
+      to: email,
+      subject: "Reset your Versai Tech password",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Versai Tech Password Reset</h2>
+          <p>Click the link below to reset your password. This link will expire in 30 minutes.</p>
+          <div style="margin: 20px 0;">
+            <a href="${resetUrl}" style="background: #007bff; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none;">Reset Password</a>
+          </div>
+          <p style="color: #999; font-size: 12px;">If you didn't request this, you can ignore this email.</p>
+        </div>
+      `,
+    });
+    if (usingEthereal) {
+      const preview = nodemailer.getTestMessageUrl(info);
+      console.info("Ethereal preview URL:", preview);
+    }
+    return info;
+  } catch (error: any) {
+    console.error("Error sending reset password email:", error);
+    throw error;
+  }
+}
 import nodemailer from "nodemailer"
 
 const {

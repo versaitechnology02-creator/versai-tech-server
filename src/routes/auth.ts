@@ -1,11 +1,54 @@
-import express, { type Request, type Response } from "express"
-import User from "../models/User"
-import bcrypt from "bcryptjs"
-import { generateOTP, isOTPExpired } from "../utils/otp"
-import { sendOTPEmail } from "../utils/email"
-import { generateToken } from "../utils/jwt"
 
-const router = express.Router()
+import express, { Request, Response } from "express";
+import crypto from "crypto";
+import bcrypt from "bcryptjs";
+import User from "../models/User";
+import { sendResetPasswordEmail, sendOTPEmail } from "../utils/email";
+import { generateToken, verifyToken } from "../utils/jwt";
+import { generateOTP, isOTPExpired } from "../utils/otp";
+const router = express.Router();
+
+
+// Request password reset link
+router.post("/request-reset-password", async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: "Email is required" });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    // Generate token
+    const token = crypto.randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 1000 * 60 * 30); // 30 min
+    user.resetPassword = { token, expires };
+    await user.save();
+    await sendResetPasswordEmail(email, token);
+    res.json({ success: true, message: "Reset link sent to email" });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || "Failed to send reset link" });
+  }
+});
+
+// Reset password using token
+router.post("/reset-password", async (req: Request, res: Response) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ success: false, message: "Token and password required" });
+    const user = await User.findOne({ "resetPassword.token": token });
+    if (!user || !user.resetPassword || user.resetPassword.token !== token) {
+      return res.status(400).json({ success: false, message: "Invalid or expired token" });
+    }
+    if (user.resetPassword.expires < new Date()) {
+      return res.status(400).json({ success: false, message: "Token expired" });
+    }
+    user.password = await bcrypt.hash(password, 10);
+    user.resetPassword = undefined;
+    await user.save();
+    res.json({ success: true, message: "Password reset successful" });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || "Failed to reset password" });
+  }
+});
+
 
 // Sign Up - Send OTP
 router.post("/send-otp", async (req: Request, res: Response) => {
@@ -90,6 +133,7 @@ router.post("/verify-otp", async (req: Request, res: Response) => {
         success: false,
         message: "OTP not sent. Please request a new one",
       })
+
     }
 
     if (isOTPExpired(user.otp.expiresAt)) {
