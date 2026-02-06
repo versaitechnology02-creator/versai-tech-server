@@ -850,11 +850,18 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
 
     // Check if user is admin
     const user = await User.findById(userId)
-    const isAdmin = user?.isAdmin === true
+
+    if (!user) {
+      console.log(`[GET /transactions] User not found: ${userId}`)
+      return res.status(401).json({ success: false, message: "User not found" })
+    }
+
+    const isAdmin = user.isAdmin === true
+    console.log(`[GET /transactions] ACCESS CHECK: Email=${user.email}, ID=${user._id}, isAdmin=${isAdmin}`)
 
     let allTransactions;
     if (isAdmin) {
-      console.log(`[GET /transactions] Admin access for user ${userId}. Fetching all.`)
+      console.log(`[GET /transactions] DECISION: ALLOW ALL (Admin Access)`)
       allTransactions = await Transaction.find({}).sort({ createdAt: -1 }).limit(100)
     } else {
       console.log(`[GET /transactions] User access for user ${userId}. Filtering by strict userId.`)
