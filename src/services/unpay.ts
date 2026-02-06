@@ -125,9 +125,11 @@ export async function createUnpayTransaction(payload: {
   const orderId =
     payload.metadata?.order_id || `ANTBBPS${Date.now()}`
 
-  const webhookUrl =
-    process.env.UNPAY_WEBHOOK_URL ||
-    "https://api.versaitechnology.com/api/payments/webhook/unpay"
+  const webhookUrl = process.env.UNPAY_WEBHOOK_URL
+
+  if (!webhookUrl) {
+    throw new Error("UNPAY_WEBHOOK_URL is not configured")
+  }
 
   const body = {
     partner_id: UNPAY_PARTNER_ID,

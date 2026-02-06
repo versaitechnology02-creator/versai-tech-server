@@ -235,7 +235,10 @@ router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: 
     }
 
     // Use provided webhook or default (✅ FIXED: Use correct production webhook URL)
-    const webhookUrl = webhook || process.env.UNPAY_WEBHOOK_URL || `https://api.versaitechnology.com/api/payments/webhook/unpay`
+    const webhookUrl = webhook || process.env.UNPAY_WEBHOOK_URL
+    if (!webhookUrl) {
+      throw new Error("UNPAY_WEBHOOK_URL is not configured")
+    }
 
     console.log("[Create QR] Creating QR with payload:", { amount, apitxnid, webhook: webhookUrl })
 
@@ -292,7 +295,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
   try {
     console.log("RAZORPAY_KEY_ID IN USE:", process.env.RAZORPAY_KEY_ID);
     console.log("RAZORPAY_KEY_SECRET SET:", process.env.RAZORPAY_KEY_SECRET ? "YES" : "NO");
-    
+
     const { amount, currency = "INR", description, customer_id, receipt, notes, provider } = req.body as CreateOrderRequest & { provider?: string }
 
     if (!amount || amount <= 0) {
@@ -362,7 +365,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // Call only the selected provider (or both if no provider specified for backward compatibility)
     // This ensures money goes to the correct merchant account
     const selectedProvider = provider?.toLowerCase()
-    
+
     // Call SMEPay only if selected or if no provider specified (backward compatibility)
     if (!selectedProvider || selectedProvider === "smepay") {
       try {
@@ -374,8 +377,8 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           metadata: { razorpay_order_id: order.id },
         })
 
-        // attach smepay info to in-memory transaction
-        ;(transaction as any).smepay = smepayResp
+          // attach smepay info to in-memory transaction
+          ; (transaction as any).smepay = smepayResp
 
         // update DB record with smepay info if present
         try {
@@ -389,10 +392,10 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         }
       } catch (err: any) {
         console.warn("SMEPay call failed (non-fatal):", err.message)
-        ;(transaction as any).smepay_error = err.message
+          ; (transaction as any).smepay_error = err.message
         // If SMEPay was specifically selected and failed, surface the error
         if (selectedProvider === "smepay") {
-          ;(transaction as any).smepay_critical_error = err.message
+          ; (transaction as any).smepay_critical_error = err.message
         }
       }
     }
@@ -431,7 +434,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         });
 
         // attach unpay info to in-memory transaction
-        ;(transaction as any).unpay = unpayResp;
+        ; (transaction as any).unpay = unpayResp;
 
         // update DB record with unpay qr info
         try {
@@ -445,10 +448,10 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         }
       } catch (err: any) {
         console.warn("Unpay call failed (non-fatal):", err.message, err?.response?.data || "");
-        ;(transaction as any).unpay_error = err.message;
+        ; (transaction as any).unpay_error = err.message;
         // If UnPay was specifically selected and failed, surface the error and details
         if (selectedProvider === "unpay") {
-          ;(transaction as any).unpay_critical_error = err.message + (err?.response?.data ? ": " + JSON.stringify(err.response.data) : "");
+          ; (transaction as any).unpay_critical_error = err.message + (err?.response?.data ? ": " + JSON.stringify(err.response.data) : "");
         }
         // Return the actual UnPay error to the frontend if provider is unpay
         if (selectedProvider === "unpay") {
@@ -460,8 +463,8 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       }
     } else if (selectedProvider === "unpay" && !allowUnPay) {
       // If UnPay is specifically selected but we're not in production, show error
-      ;(transaction as any).unpay_error = "UnPay is not available in local development environment";
-      ;(transaction as any).unpay_critical_error = "UnPay is not available in local development environment";
+      ; (transaction as any).unpay_error = "UnPay is not available in local development environment";
+      ; (transaction as any).unpay_critical_error = "UnPay is not available in local development environment";
       return res.status(400).json({
         success: false,
         message: "UnPay is not available in local development environment",
@@ -471,7 +474,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // Call Razorpay Payment Link and QR Code creation if selected
     let razorpayPaymentLink: any = null
     let razorpayQrCode: any = null
-    
+
     // NOTE: Razorpay should NOT use payment links or QR - only order + checkout
     // Payment links/QR are optional and feature-restricted for Razorpay
     /*
@@ -607,11 +610,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     // Extract UPI intents and official gateway hosted links from provider responses
     // CRITICAL: Only return UPI intents or official gateway links, NEVER frontend URLs
-    
+
     // UnPay: Use qrString for Dynamic QR
     const unpayQrString = (transaction as any).unpay?.qrString
     const unpayLink = (unpayQrString && typeof unpayQrString === 'string') ? unpayQrString : null
-    
+
     // SMEPay: Use ONLY payment_url (as per requirement - PRIMARY provider)
     // SMEPay service returns payment_url in the response - this is the official gateway link
     const smepayPaymentUrl = (transaction as any).smepay?.payment_url
@@ -628,14 +631,14 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         message: `SMEPay error: ${(transaction as any).smepay_critical_error}`,
       })
     }
-    
+
     if (selectedProvider === "unpay" && (transaction as any).unpay_critical_error) {
       return res.status(400).json({
         success: false,
         message: `UnPay error: ${(transaction as any).unpay_critical_error}`,
       })
     }
-    
+
     if (selectedProvider === "razorpay" && (transaction as any).razorpay_error) {
       console.log("[Razorpay] Razorpay failed, but returning order info for checkout")
       // Don't return error, return the order info so user can do checkout
@@ -645,11 +648,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // Return the payment link based on selected provider (normalized to lowercase)
     // If provider is specified, return only that provider's link
     let finalPaymentLink: string | null = null
-    
+
     // Normalize provider for comparison (frontend may send "SMEPay", "UnPay", "smepay", etc.)
     // selectedProvider is already lowercased, use it directly
     const normalizedProvider = selectedProvider || null
-    
+
     if (normalizedProvider === "smepay") {
       finalPaymentLink = smepayLink
     } else if (normalizedProvider === "unpay") {
@@ -663,7 +666,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     // Log payment link for debugging
     console.log(`[Payment] Provider: ${normalizedProvider || 'none'}, Payment Link: ${finalPaymentLink || 'null'}`)
-    
+
     res.status(201).json({
       success: true,
       data: {
