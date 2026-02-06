@@ -857,12 +857,22 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
       console.log(`[GET /transactions] Admin access for user ${userId}. Fetching all.`)
       allTransactions = await Transaction.find({}).sort({ createdAt: -1 }).limit(100)
     } else {
-      console.log(`[GET /transactions] User access for user ${userId}. Filtering by userId.`)
-      // Ensure strict filtering
-      allTransactions = await Transaction.find({ userId: userId }).sort({ createdAt: -1 }).limit(100)
+      console.log(`[GET /transactions] User access for user ${userId}. Filtering by strict userId.`)
+
+      // STRICT FILTERING: Cast to ObjectId to ensure type matching
+      // If transactions were saved with string IDs, this might fail matching, so we try both to be safe but restrictive? 
+      // No, best practice is to match the schema type. Schema says ObjectId.
+      // We will try to match exactly what is in the DB.
+
+      const mongoose = require("mongoose");
+      const userObjectId = new mongoose.Types.ObjectId(userId);
+
+      allTransactions = await Transaction.find({
+        userId: userObjectId
+      }).sort({ createdAt: -1 }).limit(100)
     }
 
-    console.log(`[GET /transactions] Found ${allTransactions.length} transactions`)
+    console.log(`[GET /transactions] Found ${allTransactions.length} transactions for user role`)
 
     res.status(200).json({
       success: true,
