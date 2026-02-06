@@ -220,7 +220,7 @@ export async function createUnpayDynamicQR(payload: {
 
   const finalBody = {
     partner_id: UNPAY_PARTNER_ID,
-    request: encrypted,
+    body: encrypted,
   }
 
   console.log("[UnPay QR] Encrypted Payload Ready")
