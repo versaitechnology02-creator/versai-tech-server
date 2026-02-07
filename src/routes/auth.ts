@@ -8,7 +8,6 @@ import { generateToken, verifyToken } from "../utils/jwt";
 import { generateOTP, isOTPExpired } from "../utils/otp";
 const router = express.Router();
 
-
 // Request password reset link
 router.post("/request-reset-password", async (req: Request, res: Response) => {
   try {
