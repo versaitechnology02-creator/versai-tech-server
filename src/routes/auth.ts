@@ -90,6 +90,7 @@ router.post("/send-otp", async (req: Request, res: Response) => {
         name: name || email.split("@")[0],
         password: hashed,
         otp: { code: otp, expiresAt },
+        isAdmin: false, // Ensure new users are never admins
       })
     }
 
