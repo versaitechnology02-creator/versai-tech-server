@@ -12,17 +12,27 @@ const router = express.Router();
 router.post("/request-reset-password", async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ success: false, message: "Email is required" });
+    console.log("[RESET PASSWORD] Request received for email:", email);
+    if (!email) {
+      console.log("[RESET PASSWORD] No email provided");
+      return res.status(400).json({ success: false, message: "Email is required" });
+    }
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    if (!user) {
+      console.log("[RESET PASSWORD] User not found for email:", email);
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
     // Generate token
     const token = crypto.randomBytes(32).toString("hex");
     const expires = new Date(Date.now() + 1000 * 60 * 30); // 30 min
     user.resetPassword = { token, expires };
     await user.save();
+    console.log("[RESET PASSWORD] Token generated and saved for user:", email, token);
     await sendResetPasswordEmail(email, token);
+    console.log("[RESET PASSWORD] Reset password email sent to:", email);
     res.json({ success: true, message: "Reset link sent to email" });
   } catch (error: any) {
+    console.error("[RESET PASSWORD] Error:", error);
     res.status(500).json({ success: false, message: error.message || "Failed to send reset link" });
   }
 });
