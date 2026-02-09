@@ -186,7 +186,18 @@ router.post("/sign-in", async (req: Request, res: Response) => {
     user.lastLogin = new Date();
     await user.save();
 
-    return res.json({ success: true, token });
+    // Return token and safe user fields for the client
+    const safeUser = {
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      isAdmin: user.isAdmin,
+      verified: user.verified,
+      isVerified: user.isVerified,
+      lastLogin: user.lastLogin,
+    };
+
+    return res.json({ success: true, token, user: safeUser });
   } catch (error: any) {
     console.error("SIGN IN ERROR:", error);
     return res.status(500).json({ success: false, message: "Server error" });
