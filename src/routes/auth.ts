@@ -178,7 +178,26 @@ router.post("/sign-in", async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: "Pending admin verification" });
     }
 
-    if (!user.password || !(await bcrypt.compare(password, user.password))) {
+    if (!user.password) {
+      console.error("SIGN IN FAILED: user has no password", {
+        id: user._id,
+        email: user.email,
+        verified: user.verified,
+        isVerified: user.isVerified,
+        isAdmin: user.isAdmin,
+      });
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      console.error("SIGN IN FAILED: invalid password", {
+        id: user._id,
+        email: user.email,
+        verified: user.verified,
+        isVerified: user.isVerified,
+        isAdmin: user.isAdmin,
+      });
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
