@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import User from "../models/User";
 import { sendResetPasswordEmail, sendOTPEmail } from "../utils/email";
@@ -162,46 +163,59 @@ router.post("/verify-otp", async (req: Request, res: Response) => {
 ========================= */
 router.post("/sign-in", async (req: Request, res: Response) => {
   try {
-    const email = normalizeEmail(req.body.email);
-    const { password } = req.body;
+    const { email: rawEmail, password } = req.body;
+
+    console.log(`[LOGIN DEBUG] Login attempt for email: ${rawEmail}`);
+
+    if (!rawEmail || !password) {
+      console.log(`[LOGIN DEBUG] Missing credentials for: ${rawEmail}`);
+      return res.status(400).json({ success: false, message: "Email and password are required" });
+    }
+
+    const email = normalizeEmail(rawEmail);
+    console.log(`[LOGIN DEBUG] Normalized email: ${email}`);
+
+    // Check database connection state (0 = disconnected, 1 = connected)
+    console.log(`[LOGIN DEBUG] Mongoose Connection State: ${mongoose.connection.readyState}`);
 
     const user = await User.findOne({ email });
+
     if (!user) {
+      console.log(`[LOGIN DEBUG] User not found for email: ${email}`);
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    console.log(`[LOGIN DEBUG] User found: ${user._id}`);
+    console.log(`[LOGIN DEBUG] User status: verified=${user.verified}, isVerified=${user.isVerified}, isAdmin=${user.isAdmin}, hasPassword=${!!user.password}`);
+
+    // Check verification status
     if (!user.verified && !user.isAdmin) {
+      console.log(`[LOGIN DEBUG] User not verified (legacy flag)`);
       return res.status(403).json({ success: false, message: "Email not verified" });
     }
 
     if (!user.isVerified && !user.isAdmin) {
+      console.log(`[LOGIN DEBUG] User not approved by admin`);
       return res.status(403).json({ success: false, message: "Pending admin verification" });
     }
 
     if (!user.password) {
-      console.error("SIGN IN FAILED: user has no password", {
+      console.error("[LOGIN DEBUG] CRITICAL: User exists but has no password set", {
         id: user._id,
-        email: user.email,
-        verified: user.verified,
-        isVerified: user.isVerified,
-        isAdmin: user.isAdmin,
+        email: user.email
       });
-      return res.status(401).json({ success: false, message: "Invalid credentials" });
+      return res.status(401).json({ success: false, message: "Invalid credentials (no password set)" });
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
-      console.error("SIGN IN FAILED: invalid password", {
-        id: user._id,
-        email: user.email,
-        verified: user.verified,
-        isVerified: user.isVerified,
-        isAdmin: user.isAdmin,
-      });
+      console.log(`[LOGIN DEBUG] Password mismatch for user: ${email}`);
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
+    console.log(`[LOGIN DEBUG] Password match successful. Generating token...`);
     const token = generateToken(user._id.toString());
+
     user.lastLogin = new Date();
     await user.save();
 
@@ -214,11 +228,14 @@ router.post("/sign-in", async (req: Request, res: Response) => {
       verified: user.verified,
       isVerified: user.isVerified,
       lastLogin: user.lastLogin,
+      role: user.isAdmin ? 'admin' : 'user' // Add explicit role for frontend convenience
     };
 
+    console.log(`[LOGIN DEBUG] Sending successful response with user object.`);
     return res.json({ success: true, token, user: safeUser });
+
   } catch (error: any) {
-    console.error("SIGN IN ERROR:", error);
+    console.error("[LOGIN DEBUG] SIGN IN ERROR:", error);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
