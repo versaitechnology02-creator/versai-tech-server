@@ -402,18 +402,21 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     }
 
     // Call UnPay only if selected or if no provider specified (backward compatibility)
-    // Determine if this environment should allow UnPay (prefer NODE_ENV, but also accept SERVER_URL)
+    // Determine if this environment should allow UnPay
+    const forceEnableUnpay = process.env.UNPAY_ENABLED === 'true'
     const isProdEnv = process.env.NODE_ENV === 'production' || (process.env.SERVER_URL && process.env.SERVER_URL.includes('versaitechnology.com'))
 
-    // Safety: if CLIENT_URL explicitly contains localhost, treat as non-production
+    // Safety: if CLIENT_URL explicitly contains localhost, treat as non-production (unless forced)
     const clientUrlIsLocal = !!process.env.CLIENT_URL && process.env.CLIENT_URL.includes('localhost')
 
-    const allowUnPay = isProdEnv && !clientUrlIsLocal
+    // Allow if forced OR (isProd AND not local client)
+    const allowUnPay = forceEnableUnpay || (isProdEnv && !clientUrlIsLocal)
 
     console.log("[PAYMENT GATEWAY MODE] [create-order]", {
       provider: selectedProvider || "auto",
       isProdEnv,
       clientUrlIsLocal,
+      forceEnableUnpay,
       allowUnPay,
     })
 
@@ -426,6 +429,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           currency: currency,
           webhook: process.env.UNPAY_WEBHOOK_URL,
         });
+
         const unpayResp = await createUnpayDynamicQR({
           amount,
           apitxnid: order.id,
@@ -452,7 +456,8 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         ; (transaction as any).unpay_error = err.message;
         // If UnPay was specifically selected and failed, surface the error and details
         if (selectedProvider === "unpay") {
-          ; (transaction as any).unpay_critical_error = err.message + (err?.response?.data ? ": " + JSON.stringify(err.response.data) : "");
+          const detail = err?.response?.data ? ": " + JSON.stringify(err.response.data) : "";
+          ; (transaction as any).unpay_critical_error = err.message + detail;
         }
         // Return the actual UnPay error to the frontend if provider is unpay
         if (selectedProvider === "unpay") {
@@ -463,12 +468,13 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         }
       }
     } else if (selectedProvider === "unpay" && !allowUnPay) {
-      // If UnPay is specifically selected but we're not in production, show error
-      ; (transaction as any).unpay_error = "UnPay is not available in local development environment";
-      ; (transaction as any).unpay_critical_error = "UnPay is not available in local development environment";
+      // If UnPay is specifically selected but we're not allowed, show error
+      const msg = "UnPay is disabled in this environment (UNPAY_ENABLED implies false)"
+        ; (transaction as any).unpay_error = msg;
+      ; (transaction as any).unpay_critical_error = msg;
       return res.status(400).json({
         success: false,
-        message: "UnPay is not available in local development environment",
+        message: msg,
       });
     }
 
