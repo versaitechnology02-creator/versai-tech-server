@@ -254,9 +254,9 @@ router.post("/sign-in", async (req: Request, res: Response) => {
 router.get("/debug-version", (req, res) => {
   res.json({
     success: true,
-    version: "1.1.0",
+    version: "1.2.0",
     timestamp: new Date().toISOString(),
-    message: "Login Fix is Deployed"
+    message: "Login Response Fix Applied (User Object Included)"
   });
 });
 
