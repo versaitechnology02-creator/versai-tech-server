@@ -56,6 +56,25 @@ const testLogin = async () => {
                 const match = await bcrypt.compare(password, user.password);
                 console.log(`[TEST]    Password Match: ${match ? '✅ YES' : '❌ NO'}`);
             }
+
+            // SIMULATE BACKEND RESPONSE LOGIC
+            const safeUser = {
+                id: user._id ? user._id.toString() : 'unknown',
+                email: user.email || '',
+                name: user.name || '',
+                isAdmin: !!user.isAdmin,
+                verified: !!user.verified,
+                isVerified: !!user.isVerified,
+                lastLogin: user.lastLogin || new Date(),
+                role: user.isAdmin ? 'admin' : 'user'
+            };
+
+            console.log('[TEST] ---------------------------------------------------');
+            console.log('[TEST] Simulated Server Response Object:');
+            console.log(safeUser);
+            console.log('[TEST] JSON Stringified (what frontend receives):');
+            console.log(JSON.stringify({ success: true, token: "SAMPLE_TOKEN", user: safeUser }, null, 2));
+            console.log('[TEST] ---------------------------------------------------');
         }
 
         await mongoose.disconnect();

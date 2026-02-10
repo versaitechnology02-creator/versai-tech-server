@@ -21,34 +21,55 @@ app.set('trust proxy', true)
 
 /* =========================================================
    CORS CONFIG (BULLETPROOF)
-========================================================= */
+   ========================================================= */
 
-const ALLOWED_DOMAIN = 'versaitechnology.com'
+const ALLOWED_ORIGINS = [
+  'https://payments.versaitechnology.com',
+  'https://versaitechnology.com',
+  'https://www.versaitechnology.com',
+  'http://localhost:3000',
+  'http://localhost:5173'
+]
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow server-to-server, webhooks, Postman
-      if (!origin) return callback(null, true)
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow server-to-server, webhooks, Postman (no origin)
+    if (!origin) return callback(null, true)
 
-      // Allow localhost
-      if (origin.startsWith('http://localhost')) {
-        return callback(null, true)
-      }
+    // Check against allowed exact list
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true)
+    }
 
-      // Allow all subdomains + www + https
-      if (origin.includes(ALLOWED_DOMAIN)) {
-        return callback(null, true)
-      }
+    // Allow subdomains (e.g. admin.versaitechnology.com)
+    if (origin.endsWith('.versaitechnology.com')) {
+      return callback(null, true)
+    }
 
-      // ❗ IMPORTANT: DO NOT THROW ERROR
-      return callback(null, false)
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-  })
-)
+    // In production, block unknown origins
+    console.warn(`Blocked CORS for origin: ${origin}`)
+    return callback(null, false)
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers'
+  ],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+}
+
+// Enable Pre-Flight for ALL routes specifically
+app.options('*', cors(corsOptions))
+
+// Enable CORS for ALL routes
+app.use(cors(corsOptions))
 
 /* =========================================================
    MIDDLEWARES
@@ -95,7 +116,7 @@ app.use('/api/admin', adminRoutes)
 // Rewrite to existing /api/payments/webhook/smepay handler without changing router structure
 app.post('/api/smepay/callback', (req: Request, res: Response, next: NextFunction) => {
   req.url = '/webhook/smepay'
-  ;(paymentRoutes as any).handle(req, res, next)
+    ; (paymentRoutes as any).handle(req, res, next)
 })
 
 /* =========================================================

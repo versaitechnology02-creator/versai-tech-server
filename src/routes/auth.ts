@@ -220,24 +220,44 @@ router.post("/sign-in", async (req: Request, res: Response) => {
     await user.save();
 
     // Return token and safe user fields for the client
+    // CRITICAL: Ensure no fields are undefined, as JSON.stringify might strip them
     const safeUser = {
-      id: user._id,
-      email: user.email,
-      name: user.name,
-      isAdmin: user.isAdmin,
-      verified: user.verified,
-      isVerified: user.isVerified,
-      lastLogin: user.lastLogin,
-      role: user.isAdmin ? 'admin' : 'user' // Add explicit role for frontend convenience
+      id: user._id ? user._id.toString() : 'unknown',
+      email: user.email || '',
+      name: user.name || '',
+      isAdmin: !!user.isAdmin,
+      verified: !!user.verified,
+      isVerified: !!user.isVerified,
+      lastLogin: user.lastLogin || new Date(),
+      role: user.isAdmin ? 'admin' : 'user'
     };
 
-    console.log(`[LOGIN DEBUG] Sending successful response with user object.`);
-    return res.json({ success: true, token, user: safeUser });
+    console.log(`[LOGIN DEBUG] Sending successful response with user object:`, JSON.stringify(safeUser));
+
+    // Explicit return to ensure express sends it
+    return res.status(200).json({
+      success: true,
+      token,
+      user: safeUser
+    });
 
   } catch (error: any) {
     console.error("[LOGIN DEBUG] SIGN IN ERROR:", error);
     return res.status(500).json({ success: false, message: "Server error" });
   }
+});
+
+/* =========================
+   DEBUG ENDPOINT (Verify Deployment)
+   GET /api/auth/debug-version
+========================= */
+router.get("/debug-version", (req, res) => {
+  res.json({
+    success: true,
+    version: "1.1.0",
+    timestamp: new Date().toISOString(),
+    message: "Login Fix is Deployed"
+  });
 });
 
 export default router;
