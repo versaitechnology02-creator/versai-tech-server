@@ -1,6 +1,8 @@
+
 import axios from "axios"
 import crypto from "crypto"
 import net from "net"
+
 
 // Config
 import {
@@ -171,8 +173,6 @@ export async function createUnpayDynamicQR(payload: {
   customer_email?: string
   currency?: string
 }) {
-  console.log("[UnPay QR] Payload:", payload)
-
   if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) {
     throw new Error("UnPay credentials missing")
   }
@@ -191,39 +191,21 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   // ======================
-  // Build Base Payload
+  // Build Strict Payload
   // ======================
-  const basePayload: any = {
-    partner_id: UNPAY_PARTNER_ID,
+  // Per UnPay Docs & Client Feedback:
+  // - No IP
+  // - No customer_email
+  // - amount as integer
+  // - Only required fields
+  const info = {
+    partner_id: Number(UNPAY_PARTNER_ID) || UNPAY_PARTNER_ID, // Ensure type matches doc if possible, usually string or int. User said integer.
+    amount: amount, // Send as number/integer
     apitxnid: payload.apitxnid,
-    amount: amount.toString(),
     webhook,
-    customer_email: payload.customer_email,
   }
 
-  // Add IP
-  try {
-    const ip = await getUnpayIp()
-    basePayload.ip = ip
-  } catch {
-    console.warn("[UnPay] IP not attached")
-  }
-
-  console.log("[UnPay QR] Raw Payload:", basePayload)
-
-  // ======================
-  // ALWAYS Encrypt (TEST + LIVE)
-  // ======================
-  const encrypted = encryptAES(
-    JSON.stringify(basePayload)
-  )
-
-  const finalBody = {
-    partner_id: UNPAY_PARTNER_ID,
-    body: encrypted,
-  }
-
-  console.log("[UnPay QR] Encrypted Payload Ready")
+  console.log("[UnPay QR] Request Body:", JSON.stringify(info, null, 2))
 
   // ======================
   // Send Request
@@ -231,7 +213,7 @@ export async function createUnpayDynamicQR(payload: {
   try {
     const resp = await unpayClient.post(
       "/next/upi/request/qr",
-      finalBody
+      info
     )
 
     console.log("[UnPay QR] Response:", resp.data)
