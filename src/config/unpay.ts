@@ -53,10 +53,12 @@ const lookup4 = (
 }
 
 const httpAgent = new http.Agent({
+  family: 4,
   lookup: lookup4,
 })
 
 const httpsAgent = new https.Agent({
+  family: 4,
   lookup: lookup4,
 })
 
@@ -75,5 +77,44 @@ const unpayClient = axios.create({
   httpAgent,
   httpsAgent,
 })
+
+// ======================
+// SOCKET DEBUGGING
+// ======================
+unpayClient.interceptors.request.use((config) => {
+  if (config.timeout) {
+    // Force lookup on request to debug
+    const host = new URL(config.baseURL || "").hostname
+    if (host) {
+      dns.lookup(host, { family: 4 }, (err, address, family) => {
+        if (!err) {
+          console.log(`[UnPay Debug] DNS Lookup: ${host} -> ${address} (Family: ${family})`)
+        }
+      })
+    }
+  }
+  return config
+})
+
+
+unpayClient.interceptors.response.use(
+  (response) => {
+    // Try to get socket info if avail
+    const socket = response.request?.socket
+    if (socket) {
+      console.log(`[UnPay Debug] Socket Remote Address: ${socket.remoteAddress}`)
+      console.log(`[UnPay Debug] Socket Family: ${socket.remoteFamily}`)
+    }
+    return response
+  },
+  (error) => {
+    const socket = error.request?.socket
+    if (socket) {
+      console.log(`[UnPay Debug] Error Socket Remote Address: ${socket.remoteAddress}`)
+      console.log(`[UnPay Debug] Error Socket Family: ${socket.remoteFamily}`)
+    }
+    return Promise.reject(error)
+  }
+)
 
 export default unpayClient

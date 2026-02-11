@@ -69,6 +69,29 @@ function cleanIp(ip?: string): string {
 }
 
 // ======================
+// Get Server IP (IPv4 ONLY)
+// ======================
+
+export async function getUnpayIp(): Promise<string> {
+  try {
+    // Force fetching IPv4 from ipify
+    const resp = await axios.get("https://api.ipify.org?format=json")
+
+    let ip = cleanIp(resp.data.ip)
+
+    if (!ip || net.isIP(ip) !== 4) {
+      throw new Error(`Invalid IPv4 fetched: ${ip}`)
+    }
+
+    console.log(`[UnPay] Using IPv4: ${ip}`)
+    return ip
+  } catch (err: any) {
+    console.error("[UnPay] Failed to fetch IPv4:", err.message)
+    throw new Error("Unable to detect server IPv4")
+  }
+}
+
+// ======================
 // Create Pay-In Order
 // ======================
 
@@ -150,6 +173,9 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Webhook missing")
   }
 
+  // 1. Fetch Server IP (IPv4)
+  const ip = await getUnpayIp()
+
   // ======================
   // Build Inner Payload
   // ======================
@@ -159,6 +185,7 @@ export async function createUnpayDynamicQR(payload: {
     apitxnid: payload.apitxnid,
     amount: amount,
     webhook,
+    ip_address: ip // INJECT IP HERE
   }
 
   console.log(

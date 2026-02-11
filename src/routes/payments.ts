@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express"
 import razorpay from "../config/razorpay"
-import { createUnpayTransaction, createUnpayDynamicQR, decryptAES } from "../services/unpay"
+import { createUnpayTransaction, createUnpayDynamicQR, getUnpayIp, decryptAES } from "../services/unpay"
 import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
@@ -16,14 +16,13 @@ const transactions: Map<string, PaymentTransaction> = new Map()
 const paymentLinks: Map<string, any> = new Map()
 const payouts: Map<string, any> = new Map()
 
-// Test endpoint to get UnPay server IP (for whitelisting) - DEPRECATED
+// Test endpoint to get UnPay server IP (for whitelisting)
 router.get("/test/unpay-ip", async (req: Request, res: Response) => {
   try {
-    // getUnpayIp removed as per user request
-    const ip = "IP detection removed"
+    const ip = await getUnpayIp()
     res.status(200).json({
       success: true,
-      message: "IP detection removed to fix build",
+      message: "Contact UnPay support to whitelist this IP",
       ip,
     })
   } catch (err: any) {
