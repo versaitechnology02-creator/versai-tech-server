@@ -19,16 +19,27 @@ export const UNPAY_IV = process.env.UNPAY_IV || ""
 const lookup4 = (
   hostname: string,
   options: any,
-  callback?: (err: NodeJS.ErrnoException | null, address: string) => void
+  callback?: (err: NodeJS.ErrnoException | null, address: string, family: number) => void
 ) => {
+  // If options is the callback, shift arguments
   if (typeof options === "function") {
-    return dns.lookup(hostname, { family: 4 }, options)
+    callback = options
+    options = {}
   }
+
+  // Force IPv4
   return dns.lookup(hostname, { family: 4 }, callback as any)
 }
 
-const httpAgent = new http.Agent({ lookup: lookup4 })
-const httpsAgent = new https.Agent({ lookup: lookup4 })
+const httpAgent = new http.Agent({
+  family: 4,
+  lookup: lookup4
+})
+
+const httpsAgent = new https.Agent({
+  family: 4,
+  lookup: lookup4
+})
 
 const unpayClient = axios.create({
   baseURL: UNPAY_BASE_URL,
