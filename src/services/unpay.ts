@@ -32,8 +32,8 @@ export function encryptAES(data: string): string {
     Buffer.from(iv, "utf8")
   )
 
-  let encrypted = cipher.update(data, "utf8", "hex")
-  encrypted += cipher.final("hex")
+  let encrypted = cipher.update(data, "utf8", "base64")
+  encrypted += cipher.final("base64")
 
   return encrypted
 }
@@ -49,7 +49,7 @@ export function decryptAES(enc: string): string {
     Buffer.from(iv, "utf8")
   )
 
-  let decrypted = decipher.update(enc, "hex", "utf8")
+  let decrypted = decipher.update(enc, "base64", "utf8")
   decrypted += decipher.final("utf8")
 
   return decrypted
