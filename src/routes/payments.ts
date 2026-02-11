@@ -1030,6 +1030,12 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
     // ======================
     // SECURITY VERIFICATION
     // ======================
+    // LOG HEADERS FOR SIGNATURE DISCOVERY
+    console.log("[SMEPay Webhook] Debug Headers for Signature:", JSON.stringify(req.headers));
+
+    // TODO: Verify signature using x-smepay-signature if available
+    // const signature = req.headers["x-smepay-signature"]
+    // if (!verifySmepaySignature(JSON.stringify(req.body), signature)) { ... }
     // TODO: Verify signature using x-smepay-signature if available
     // const signature = req.headers["x-smepay-signature"]
     // if (!verifySmepaySignature(JSON.stringify(req.body), signature)) { ... }
@@ -1049,7 +1055,12 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
     const rawStatus = body.status || body.STATUS || body.payment_status
 
     // Log extracted critical fields
-    console.log("[SMEPay Webhook] Extracted data:", { rawOrderId, rawRefId, rawStatus })
+    console.log("[SMEPay Webhook] Extracted data (normalized):", {
+      rawOrderId,
+      rawRefId,
+      rawStatus,
+      normalizedStatus: (rawStatus || "").toString().trim().toUpperCase()
+    })
 
     if (!rawOrderId && !rawRefId) {
       console.error("[SMEPay Webhook] Missing order identifier (order_id/ref_id)")
@@ -1111,14 +1122,14 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
               candidate_order_ids: candidateIds,
               raw_payload: body,
             },
-            // Append webhook log for debugging (keep last 10 logs)
-            $push: {
-              "notes.smepay_webhook_logs": {
-                $each: [webhookLog],
-                $slice: -10
-              }
-            }
           },
+          // Append webhook log for debugging (keep last 10 logs)
+          $push: {
+            "notes.smepay_webhook_logs": {
+              $each: [webhookLog],
+              $slice: -10
+            }
+          }
         },
         { upsert: false, new: true }
       )
@@ -1137,6 +1148,7 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
       // ======================
       // REAL-TIME BROADCAST
       // ======================
+      console.log(`[SMEPay Webhook] Triggering SSE broadcast for order: ${updateResult.orderId}`)
       sseManager.broadcast(updateResult.orderId, {
         status: dbStatus,
         amount,
