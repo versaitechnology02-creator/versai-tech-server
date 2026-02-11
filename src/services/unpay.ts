@@ -23,17 +23,17 @@ function validateAesConfig() {
 export function encryptAES(data: string): string {
   validateAesConfig()
 
-  // IV derived from first 16 chars of key
-  const iv = UNPAY_AES_KEY.substring(0, 16)
+  const keyBuffer = Buffer.from(UNPAY_AES_KEY, "utf8")
+  const iv = keyBuffer.subarray(0, 16)
 
   const cipher = crypto.createCipheriv(
     "aes-256-cbc",
-    Buffer.from(UNPAY_AES_KEY, "utf8"),
-    Buffer.from(iv, "utf8")
+    keyBuffer,
+    iv
   )
 
-  let encrypted = cipher.update(data, "utf8", "base64")
-  encrypted += cipher.final("base64")
+  let encrypted = cipher.update(data, "utf8", "hex")
+  encrypted += cipher.final("hex")
 
   return encrypted
 }
@@ -41,19 +41,21 @@ export function encryptAES(data: string): string {
 export function decryptAES(enc: string): string {
   validateAesConfig()
 
-  const iv = UNPAY_AES_KEY.substring(0, 16)
+  const keyBuffer = Buffer.from(UNPAY_AES_KEY, "utf8")
+  const iv = keyBuffer.subarray(0, 16)
 
   const decipher = crypto.createDecipheriv(
     "aes-256-cbc",
-    Buffer.from(UNPAY_AES_KEY, "utf8"),
-    Buffer.from(iv, "utf8")
+    keyBuffer,
+    iv
   )
 
-  let decrypted = decipher.update(enc, "base64", "utf8")
+  let decrypted = decipher.update(enc, "hex", "utf8")
   decrypted += decipher.final("utf8")
 
   return decrypted
 }
+
 
 // ======================
 // Clean IP
@@ -203,7 +205,9 @@ export async function createUnpayDynamicQR(payload: {
 
   const requestBody = {
     body: encryptedString,
+    api_key: UNPAY_API_KEY
   }
+
 
   console.log(
     "[UnPay QR] Final Request Body (Encrypted HEX):",

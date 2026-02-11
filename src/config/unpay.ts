@@ -28,11 +28,10 @@ if (!UNPAY_AES_KEY) {
   throw new Error("UNPAY_AES_KEY is not configured")
 }
 
-// Runtime confirmation
 console.log("✅ UNPAY URL AT RUNTIME =", UNPAY_BASE_URL)
 
 // ======================
-// FORCE IPV4 (CRITICAL)
+// FORCE IPV4
 // ======================
 
 const lookup4 = (
@@ -63,7 +62,7 @@ const httpsAgent = new https.Agent({
 })
 
 // ======================
-// AXIOS CLIENT
+// AXIOS CLIENT (NO API KEY IN HEADER)
 // ======================
 
 const unpayClient = axios.create({
@@ -72,49 +71,20 @@ const unpayClient = axios.create({
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
-    "api-key": UNPAY_API_KEY,
   },
   httpAgent,
   httpsAgent,
 })
 
-// ======================
-// SOCKET DEBUGGING
-// ======================
+// Debug
 unpayClient.interceptors.request.use((config) => {
-  if (config.timeout) {
-    // Force lookup on request to debug
-    const host = new URL(config.baseURL || "").hostname
-    if (host) {
-      dns.lookup(host, { family: 4 }, (err, address, family) => {
-        if (!err) {
-          console.log(`[UnPay Debug] DNS Lookup: ${host} -> ${address} (Family: ${family})`)
-        }
-      })
+  const host = new URL(config.baseURL || "").hostname
+  dns.lookup(host, { family: 4 }, (err, address, family) => {
+    if (!err) {
+      console.log(`[UnPay Debug] DNS Lookup: ${host} -> ${address} (Family: ${family})`)
     }
-  }
+  })
   return config
 })
-
-
-unpayClient.interceptors.response.use(
-  (response) => {
-    // Try to get socket info if avail
-    const socket = response.request?.socket
-    if (socket) {
-      console.log(`[UnPay Debug] Socket Remote Address: ${socket.remoteAddress}`)
-      console.log(`[UnPay Debug] Socket Family: ${socket.remoteFamily}`)
-    }
-    return response
-  },
-  (error) => {
-    const socket = error.request?.socket
-    if (socket) {
-      console.log(`[UnPay Debug] Error Socket Remote Address: ${socket.remoteAddress}`)
-      console.log(`[UnPay Debug] Error Socket Family: ${socket.remoteFamily}`)
-    }
-    return Promise.reject(error)
-  }
-)
 
 export default unpayClient
