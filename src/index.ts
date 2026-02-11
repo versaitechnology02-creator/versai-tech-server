@@ -111,6 +111,10 @@ app.use('/api/payments', paymentRoutes)
 app.use('/api/api-keys', apiKeyRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/admin', adminRoutes)
+import payoutRoutes from './routes/payouts'
+app.use('/api/payouts', payoutRoutes)
+import adminPayoutRoutes from './routes/admin_payouts'
+app.use('/api/admin/payouts', adminPayoutRoutes)
 
 // Legacy SMEPay callback path used by provider: /api/smepay/callback
 // Rewrite to existing /api/payments/webhook/smepay handler without changing router structure

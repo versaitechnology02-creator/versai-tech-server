@@ -63,6 +63,7 @@ const userSchema = new mongoose.Schema(
     city: { type: String, default: "" },
     state: { type: String, default: "" },
     pincode: { type: String, default: "" },
+    walletBalance: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
