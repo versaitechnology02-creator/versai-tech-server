@@ -8,6 +8,7 @@ import Transaction from "../models/Transaction"
 import User from "../models/User"
 import authMiddleware from "../middleware/authMiddleware"
 import isVerified from "../middleware/isVerified"
+import { sseManager } from "../utils/sse"
 
 const router = express.Router()
 
@@ -191,6 +192,27 @@ router.get("/order-status/:orderId", async (req: Request, res: Response) => {
       message: error.message,
     })
   }
+})
+
+// Real-time Payment Status Stream (SSE)
+router.get("/stream/:orderId", (req: Request, res: Response) => {
+  const { orderId } = req.params
+
+  // Set headers for SSE
+  res.setHeader("Content-Type", "text/event-stream")
+  res.setHeader("Cache-Control", "no-cache")
+  res.setHeader("Connection", "keep-alive")
+  res.flushHeaders()
+
+  console.log(`[SSE] Client connected to stream for order: ${orderId}`)
+
+  // Register client
+  sseManager.addClient(orderId, res)
+
+  // Send initial connected message
+  res.write(`data: ${JSON.stringify({ type: "connected", orderId })}\n\n`)
+
+  // Cleanup on close is handled by SSEManager via res.on('close')
 })
 
 router.get("/settlements", (req: Request, res: Response) => {
@@ -1005,10 +1027,29 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
     };
     console.log("[SMEPay Webhook] Received webhook:", webhookLog);
 
+    // ======================
+    // SECURITY VERIFICATION
+    // ======================
+    // TODO: Verify signature using x-smepay-signature if available
+    // const signature = req.headers["x-smepay-signature"]
+    // if (!verifySmepaySignature(JSON.stringify(req.body), signature)) { ... }
+
+    // Basic Layout Check
+    if (!req.body || typeof req.body !== "object") {
+      return res.status(400).json({ success: false, message: "Invalid payload" })
+    }
+
     // SMEPay may send different identifiers; prefer order_id but fall back to ref_id
-    const body = req.body as any
-    const rawOrderId = body.order_id || body.orderId
-    const rawRefId = body.ref_id || body.refId
+    // Check if payload is wrapped in 'data'
+    const body = req.body.data ? req.body.data : req.body
+
+    // Normalize keys (just in case)
+    const rawOrderId = body.order_id || body.orderId || body.ORDER_ID
+    const rawRefId = body.ref_id || body.refId || body.REF_ID
+    const rawStatus = body.status || body.STATUS || body.payment_status
+
+    // Log extracted critical fields
+    console.log("[SMEPay Webhook] Extracted data:", { rawOrderId, rawRefId, rawStatus })
 
     if (!rawOrderId && !rawRefId) {
       console.error("[SMEPay Webhook] Missing order identifier (order_id/ref_id)")
@@ -1020,13 +1061,17 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
     if (typeof rawRefId === "string" && rawRefId.trim() && rawRefId !== rawOrderId)
       candidateIds.push(rawRefId.trim())
 
-    const { status, amount, transaction_id } = body
+    const { amount, transaction_id } = body
 
     // Map SMEPay status values to internal status
     // SMEPay docs: SUCCESS, FAILED, PENDING
     let dbStatus: string
     let statusDisplay: string = "";
-    switch ((status || "").toUpperCase()) {
+
+    // Robust status normalization
+    const normalizedStatus = (rawStatus || "").toString().trim().toUpperCase();
+
+    switch (normalizedStatus) {
       case "SUCCESS":
         dbStatus = "completed";
         statusDisplay = "Payment completed successfully ✅";
@@ -1086,11 +1131,20 @@ router.post("/webhook/smepay", async (req: Request, res: Response) => {
       console.log(
         "[SMEPay Webhook] Successfully updated transaction",
         updateResult.orderId,
-        "to status:",
-        dbStatus,
-        "Display:",
         statusDisplay
       )
+
+      // ======================
+      // REAL-TIME BROADCAST
+      // ======================
+      sseManager.broadcast(updateResult.orderId, {
+        status: dbStatus,
+        amount,
+        transaction_id,
+        timestamp: new Date().toISOString(),
+        message: statusDisplay,
+      })
+
     } catch (err: any) {
       // Log error to DB for debugging
       try {
