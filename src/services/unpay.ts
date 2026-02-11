@@ -191,21 +191,29 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   // ======================
-  // Build Strict Payload
+  // Build Inner Payload
   // ======================
-  // Per UnPay Docs & Client Feedback:
-  // - No IP
-  // - No customer_email
-  // - amount as integer
-  // - Only required fields
-  const info = {
-    partner_id: Number(UNPAY_PARTNER_ID) || UNPAY_PARTNER_ID, // Ensure type matches doc if possible, usually string or int. User said integer.
-    amount: amount, // Send as number/integer
+  // Strictly construct inner JSON object
+  const innerPayload = {
+    partner_id: Number(UNPAY_PARTNER_ID) || UNPAY_PARTNER_ID, // Send as integer/number
     apitxnid: payload.apitxnid,
+    amount: amount, // Send as integer/number
     webhook,
   }
 
-  console.log("[UnPay QR] Request Body:", JSON.stringify(info, null, 2))
+  console.log("[UnPay QR] Inner Payload (Pre-Encryption):", JSON.stringify(innerPayload, null, 2))
+
+  // ======================
+  // Encrypt Payload
+  // ======================
+  // JSON.stringify -> AES Encrypt -> { body: ... }
+  const encryptedString = encryptAES(JSON.stringify(innerPayload))
+
+  const requestBody = {
+    body: encryptedString
+  }
+
+  console.log("[UnPay QR] Final Request Body (Encrypted):", JSON.stringify(requestBody, null, 2))
 
   // ======================
   // Send Request
@@ -213,7 +221,7 @@ export async function createUnpayDynamicQR(payload: {
   try {
     const resp = await unpayClient.post(
       "/next/upi/request/qr",
-      info
+      requestBody
     )
 
     console.log("[UnPay QR] Response:", resp.data)
