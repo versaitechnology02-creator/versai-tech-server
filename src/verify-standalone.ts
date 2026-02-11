@@ -24,7 +24,7 @@ unpayClient.interceptors.request.use((config) => {
     console.log("\n[VERIFICATION] Final Request Body (Data):");
     console.log(JSON.stringify(config.data, null, 2));
 
-    console.log("\n[VERIFICATION] Request URL:", config.baseURL + config.url);
+    console.log("\n[VERIFICATION] Request URL:", (config.baseURL ?? "") + (config.url ?? ""));
 
     // Block actual network call
     throw new Error("VERIFICATION_COMPLETE");
