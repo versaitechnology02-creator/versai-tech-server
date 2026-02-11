@@ -30,7 +30,6 @@ async function verify() {
             apitxnid: "order_test_123",
             webhook: "https://mysite.com/hook",
             // These should be ignored/not present in final payload
-            customer_email: "ignore@me.com",
         });
     } catch (err: any) {
         if (err.message === "VERIFICATION_COMPLETE") {

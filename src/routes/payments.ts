@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express"
 import razorpay from "../config/razorpay"
-import { createUnpayTransaction, createUnpayDynamicQR, getUnpayIp, decryptAES } from "../services/unpay"
+import { createUnpayTransaction, createUnpayDynamicQR, decryptAES } from "../services/unpay"
 import { createSmepayTransaction } from "../services/smepay"
 import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
@@ -16,13 +16,14 @@ const transactions: Map<string, PaymentTransaction> = new Map()
 const paymentLinks: Map<string, any> = new Map()
 const payouts: Map<string, any> = new Map()
 
-// Test endpoint to get UnPay server IP (for whitelisting)
+// Test endpoint to get UnPay server IP (for whitelisting) - DEPRECATED
 router.get("/test/unpay-ip", async (req: Request, res: Response) => {
   try {
-    const ip = await getUnpayIp()
+    // getUnpayIp removed as per user request
+    const ip = "IP detection removed"
     res.status(200).json({
       success: true,
-      message: "Contact UnPay support to whitelist this IP",
+      message: "IP detection removed to fix build",
       ip,
     })
   } catch (err: any) {
@@ -246,8 +247,6 @@ router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: 
     const qrResponse = await createUnpayDynamicQR({
       amount,
       apitxnid,
-      customer_email: undefined, // Not needed for QR only
-      currency: "INR",
       webhook: webhookUrl,
     })
 
@@ -433,8 +432,6 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         const unpayResp = await createUnpayDynamicQR({
           amount,
           apitxnid: order.id,
-          customer_email: notes?.email,
-          currency: currency,
           webhook: process.env.UNPAY_WEBHOOK_URL,
         });
 
