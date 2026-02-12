@@ -121,6 +121,10 @@ export async function createUnpayTransaction(payload: {
 // Create Dynamic QR (UPDATED)
 // ======================
 
+// ======================
+// Create Dynamic QR (API-KEY IN HEADER ONLY)
+// ======================
+
 export async function createUnpayDynamicQR(payload: {
   amount: number
   apitxnid: string
@@ -144,7 +148,7 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   // ======================
-  // 1. Create JSON Payload
+  // 1. Create JSON Payload (NO EXTRA FIELDS)
   // ======================
 
   const innerPayload = {
@@ -152,13 +156,14 @@ export async function createUnpayDynamicQR(payload: {
     apitxnid: payload.apitxnid,
     amount: amount,
     webhook,
+    // ip_address REMOVED as per strict docs
   }
 
   const jsonString = JSON.stringify(innerPayload)
 
-  // Log encrypted payload before sending (for debugging) - careful not to log keys
+  // Log payload structure for debugging
   console.log(
-    "[UnPay QR] Inner Payload:",
+    "[UnPay QR] Inner Payload (Plain):",
     JSON.stringify(innerPayload, null, 2)
   )
 
@@ -171,12 +176,24 @@ export async function createUnpayDynamicQR(payload: {
   console.log("[UnPay QR] Encrypted Body (First 50 chars):", encryptedString.substring(0, 50) + "...")
 
   // ======================
-  // 3. Send Request
+  // 3. Send Request (STRICT FORMAT)
   // ======================
 
   const requestBody = {
     body: encryptedString
+    // NO api_key here
   }
+
+
+  console.log("[UnPay QR] Request Config Check:", {
+    url: "/next/upi/request/qr",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "api-key": "PRESENT (Hidden)"
+    },
+    bodyKeys: Object.keys(requestBody)
+  })
 
   try {
     const resp = await unpayClient.post(
@@ -184,16 +201,17 @@ export async function createUnpayDynamicQR(payload: {
       requestBody,
       {
         headers: {
-          "api-key": UNPAY_API_KEY // MANDATORY: api-key in HEADER
+          "api-key": UNPAY_API_KEY, // MANDATORY: api-key in HEADER
+          "Content-Type": "application/json",
+          "Accept": "application/json"
         }
       }
     )
 
     console.log("[UnPay QR] Response Status:", resp.status)
-    // console.log("[UnPay QR] Response Data:", JSON.stringify(resp.data, null, 2))
 
     if (resp.data?.statuscode !== "TXN") {
-      console.error("[UnPay QR] Failed Response:", resp.data)
+      console.error("[UnPay QR] Failed Response:", JSON.stringify(resp.data, null, 2))
       throw new Error(resp.data?.message || "QR Generation failed")
     }
 
