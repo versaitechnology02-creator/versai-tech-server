@@ -139,7 +139,7 @@ export async function createUnpayTransaction(payload: {
 }
 
 // ======================
-// Create Dynamic QR (MANDATORY FIXES: IP, Headers, URL)
+// Create Dynamic QR (DEBUG MODE: Full Raw Response + Decryption)
 // ======================
 
 export async function createUnpayDynamicQR(payload: {
@@ -222,8 +222,39 @@ export async function createUnpayDynamicQR(payload: {
 
     console.log("[UnPay QR] Response Status:", resp.status)
 
-    // RETURN FULL RAW RESPONSE
-    return resp.data
+    // ======================
+    // 7. Parse Response (Decryption Logic)
+    // ======================
+
+    const rawResponse = resp.data;
+    console.log("[UnPay QR] FULL RAW RESPONSE:", JSON.stringify(rawResponse, null, 2))
+
+    let finalData = rawResponse;
+
+    // Check if response is encrypted
+    if (rawResponse.body && typeof rawResponse.body === 'string') {
+      try {
+        console.log("[UnPay QR] Detected encrypted body. Attempting decryption...")
+        const decryptedString = decryptAES(rawResponse.body)
+        console.log("[UnPay QR] Decrypted Response String:", decryptedString)
+        finalData = JSON.parse(decryptedString)
+      } catch (decryptErr: any) {
+        console.error("[UnPay QR] Decryption Failed:", decryptErr.message)
+        // Fallback to raw response if decryption fails (might not be encrypted properly or wrong key)
+      }
+    }
+
+    // Extract fields from probable locations
+    // UnPay usually returns data inside `data` object or at top level after decryption
+    const extractedData = finalData.data || finalData;
+
+    return {
+      success: true,
+      qrString: extractedData.qrString || extractedData.qr_string || null,
+      upiString: extractedData.upiString || extractedData.upi_string || extractedData.upi || null,
+      txnId: extractedData.apitxnid || extractedData.txnid || null,
+      raw: rawResponse
+    }
 
   } catch (err: any) {
     console.error(
