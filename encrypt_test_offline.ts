@@ -54,6 +54,21 @@ try {
     console.log(`[Test] Encryption Success.`);
     console.log(`[Test] Encrypted Length: ${encrypted.length}`);
     console.log(`[Test] Encrypted String (Base64): ${encrypted}`);
+
+    console.log("\n--- GENERATED CURL COMMAND ---");
+    console.log("Copy and run this command on your server to test connectivity and payload acceptance:\n");
+
+    // Escape single quotes for bash
+    const safeEncrypted = encrypted.replace(/'/g, "'\\''");
+
+    const curlCmd = `curl -X POST "https://unpay.in/tech/api/next/upi/request/qr" \\
+  -H "Content-Type: application/json" \\
+  -H "api-key: ${process.env.UNPAY_API_KEY!.trim()}" \\
+  -d '{"encdata": "${safeEncrypted}"}'`;
+
+    console.log(curlCmd);
+    console.log("\n------------------------------");
+
 } catch (e: any) {
     console.error("[Test] Encryption Failed:", e.message);
 }
