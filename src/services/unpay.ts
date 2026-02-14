@@ -126,7 +126,7 @@ export async function createUnpayDynamicQR(payload: {
     const headers = {
       "Content-Type": "application/json",
       "Accept": "application/json",
-      "api_key": UNPAY_API_KEY.trim()
+      "api-key": UNPAY_API_KEY.trim()
     }
 
     const resp = await axios.post(finalUrl, requestBody, {
