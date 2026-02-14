@@ -93,7 +93,8 @@ export async function createUnpayDynamicQR(payload: {
 
   const webhook = payload.webhook || process.env.UNPAY_WEBHOOK_URL
   if (!webhook) {
-    throw new Error("Webhook URL is missing.")
+    console.error("[UnPay QR] CRITICAL: UNPAY_WEBHOOK_URL is missing in environment variables")
+    throw new Error("Webhook URL is configured. Check UNPAY_WEBHOOK_URL in .env")
   }
 
   const innerPayload = {
@@ -154,14 +155,14 @@ export async function createUnpayDynamicQR(payload: {
       }
     } else {
       const errMsg = resp.data?.message || "Unknown UnPay Error"
-      console.error(`[UnPay QR] API Error: ${errMsg}`)
+      console.error(`[UnPay QR] API Error: ${errMsg}`, JSON.stringify(resp.data))
       throw new Error(errMsg)
     }
 
   } catch (err: any) {
     if (err.response) {
-      console.error("[UnPay QR] HTTP Error:", err.response.status, err.response.data)
-      throw new Error(err.response.data?.message || `UnPay HTTP ${err.response.status}`)
+      console.error("[UnPay QR] HTTP Error:", err.response.status, JSON.stringify(err.response.data))
+      throw new Error(err.response.data?.message || `UnPay HTTP ${err.response.status} - ${JSON.stringify(err.response.data)}`)
     } else {
       console.error("[UnPay QR] Network/Code Error:", err.message)
       throw new Error(err.message || "UnPay Request Failed")

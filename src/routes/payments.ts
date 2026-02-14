@@ -480,9 +480,11 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         }
         // Return the actual UnPay error to the frontend if provider is unpay
         if (selectedProvider === "unpay") {
+          console.error("[UnPay][create-order] Critical Error:", err);
           return res.status(400).json({
             success: false,
-            message: `UnPay error: ${err.message}` + (err?.response?.data ? ", Details: " + JSON.stringify(err.response.data) : ""),
+            message: `UnPay error: ${err.message}`, // Message likely contains details now from service
+            debug: err?.response?.data || "No external response data"
           });
         }
       }
