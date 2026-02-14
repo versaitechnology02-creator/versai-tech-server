@@ -7,8 +7,7 @@ import unpayClient from "../config/unpay"
 // UNPAY DYNAMIC QR INTEGRATION (FINAL)
 // ==========================================
 
-// 1. Strict AES Key Buffer (16 Bytes from 32-char String)
-// Key: "Rg5QoemC6Y8AWcISg5NIDMIoBnA9ccHM" (32 chars)
+// 1. Strict AES Key Buffer (AES-128 or AES-256)
 function getAesKeyBuffer(): Buffer {
   const keyRaw = process.env.UNPAY_AES_KEY || ""
 
@@ -16,21 +15,42 @@ function getAesKeyBuffer(): Buffer {
     throw new Error("UNPAY_AES_KEY is missing")
   }
 
-  // FORCE: Take first 16 bytes of the raw UTF-8 string
-  // This is the standard way to fit a 32-char ASCII key into AES-128 (16 bytes)
-  const key = Buffer.from(keyRaw, "utf8").subarray(0, 16)
+  let key: Buffer
 
-  if (key.length !== 16) {
-    throw new Error(`[UnPay Security] Derived key is ${key.length} bytes. Required: 16 bytes.`)
+  // CASE A: 32-char Hex String -> Convert to 16 bytes
+  if (keyRaw.length === 32 && /^[0-9a-fA-F]+$/.test(keyRaw)) {
+    key = Buffer.from(keyRaw, "hex")
+  }
+  // CASE B: 32-char UTF-8 String -> Use directly (AES-256)
+  else if (keyRaw.length === 32) {
+    key = Buffer.from(keyRaw, "utf8")
+  }
+  // CASE C: 16-char UTF-8 String -> Use directly (AES-128)
+  else if (keyRaw.length === 16) {
+    key = Buffer.from(keyRaw, "utf8")
+  }
+  else {
+    throw new Error(`UNPAY_AES_KEY invalid length: ${keyRaw.length}. Must be 16 or 32 chars.`)
   }
 
   return key
 }
 
-// 2. Encrypt Function (AES-128-ECB, PKCS7, Base64 Output, NO IV)
+// 2. Encrypt Function (AES-ECB, PKCS7, Base64 Output, NO IV)
 export function encryptAES(data: string): string {
   const key = getAesKeyBuffer()
-  const cipher = crypto.createCipheriv("aes-128-ecb", key, null)
+
+  // Decide Algo based on Key Length
+  let algo = "aes-128-ecb"
+  if (key.length === 32) {
+    algo = "aes-256-ecb"
+  } else if (key.length !== 16) {
+    throw new Error(`Invalid AES Key length: ${key.length}. Must be 16 or 32 bytes.`)
+  }
+
+  console.log(`[UnPay Security] Using Encryption: ${algo}, Key Length: ${key.length} bytes`)
+
+  const cipher = crypto.createCipheriv(algo, key, null)
   cipher.setAutoPadding(true)
   let encrypted = cipher.update(data, "utf8", "base64")
   encrypted += cipher.final("base64")
@@ -39,7 +59,12 @@ export function encryptAES(data: string): string {
 
 export function decryptAES(enc: string): string {
   const key = getAesKeyBuffer()
-  const decipher = crypto.createDecipheriv("aes-128-ecb", key, null)
+  let algo = "aes-128-ecb"
+  if (key.length === 32) {
+    algo = "aes-256-ecb"
+  }
+
+  const decipher = crypto.createDecipheriv(algo, key, null)
   decipher.setAutoPadding(true)
   let decrypted = decipher.update(enc, "base64", "utf8")
   decrypted += decipher.final("utf8")
@@ -78,17 +103,20 @@ export async function createUnpayDynamicQR(payload: {
     webhook: webhook
   }
 
-  console.log("[UnPay QR] Inner Payload:", JSON.stringify(innerPayload, null, 2))
+  // Minified JSON logging for debug
+  const jsonPayload = JSON.stringify(innerPayload)
+  console.log("[UnPay QR] Inner Payload (Minified):", jsonPayload)
 
   let encryptedString: string
   try {
-    encryptedString = encryptAES(JSON.stringify(innerPayload))
+    encryptedString = encryptAES(jsonPayload)
     console.log(`[UnPay QR] Encryption Success. Output Length: ${encryptedString.length}`)
   } catch (err: any) {
     console.error("[UnPay QR] Encryption Failed:", err.message)
     throw err
   }
 
+  // CORRECT ENDPOINT: https://unpay.in/tech/api/next/upi/request/qr
   const envBaseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
   const finalUrl = `${envBaseUrl}/next/upi/request/qr`
 
@@ -100,6 +128,7 @@ export async function createUnpayDynamicQR(payload: {
     console.log(`[UnPay QR] Sending Request to: ${finalUrl}`)
 
     // Header Strategy: Send BOTH common formats to be safe
+    // Also include Authorization: 'Bearer ...' just in case? No, api-key is standard.
     const headers = {
       "Content-Type": "application/json",
       "api-key": UNPAY_API_KEY.trim()
