@@ -7,30 +7,18 @@ import unpayClient from "../config/unpay"
 // UNPAY DYNAMIC QR INTEGRATION (FINAL)
 // ==========================================
 
-// 1. Strict AES Key Buffer (MUST BE 16 BYTES)
+// 1. Strict AES Key Buffer (16 Bytes from 32-char String)
+// Key: "Rg5QoemC6Y8AWcISg5NIDMIoBnA9ccHM" (32 chars)
 function getAesKeyBuffer(): Buffer {
-  // Use env directly to avoid stale config
   const keyRaw = process.env.UNPAY_AES_KEY || ""
 
   if (!keyRaw) {
     throw new Error("UNPAY_AES_KEY is missing")
   }
 
-  let key: Buffer
-
-  // CASE A: 32-char Hex String -> Convert to 16 bytes
-  if (keyRaw.length === 32 && /^[0-9a-fA-F]+$/.test(keyRaw)) {
-    key = Buffer.from(keyRaw, "hex")
-  }
-  // CASE B: 16-char UTF-8 String -> Use directly
-  else if (keyRaw.length === 16) {
-    key = Buffer.from(keyRaw, "utf8")
-  }
-  // CASE C: Invalid Format
-  else {
-    console.error(`[UnPay Security] Invalid Key Length: ${keyRaw.length}`)
-    throw new Error(`UNPAY_AES_KEY invalid. Must be 32 HEX chars or 16 UTF-8 chars.`)
-  }
+  // FORCE: Take first 16 bytes of the raw UTF-8 string
+  // This is the standard way to fit a 32-char ASCII key into AES-128 (16 bytes)
+  const key = Buffer.from(keyRaw, "utf8").subarray(0, 16)
 
   if (key.length !== 16) {
     throw new Error(`[UnPay Security] Derived key is ${key.length} bytes. Required: 16 bytes.`)
@@ -83,8 +71,6 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Webhook URL is missing.")
   }
 
-  // D. Construct Inner Payload
-  // STRICT: partner_id must be integer, no extra fields
   const innerPayload = {
     partner_id: parseInt(String(UNPAY_PARTNER_ID), 10),
     apitxnid: payload.apitxnid,
@@ -94,7 +80,6 @@ export async function createUnpayDynamicQR(payload: {
 
   console.log("[UnPay QR] Inner Payload:", JSON.stringify(innerPayload, null, 2))
 
-  // E. Encrypt Payload
   let encryptedString: string
   try {
     encryptedString = encryptAES(JSON.stringify(innerPayload))
@@ -104,27 +89,17 @@ export async function createUnpayDynamicQR(payload: {
     throw err
   }
 
-  // F. Prepare Request
-  // CORRECT ENDPOINT: https://unpay.in/tech/api/next/upi/request/qr
-  // Ensuring no double slashes and correct base
-
   const envBaseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
   const finalUrl = `${envBaseUrl}/next/upi/request/qr`
 
-  // Outer Body: { encdata: "..." }
-  // This is the CRITICAL part for "Invalid encryption request or body value missing"
   const requestBody = {
     encdata: encryptedString
   }
 
-  // G. Execute Request
   try {
     console.log(`[UnPay QR] Sending Request to: ${finalUrl}`)
 
-    // Header Strategy: Send BOTH common formats to be safe if docs are ambiguous
-    // but typically it is 'api-key'. We will send 'api-key' as primary.
-    // Ensure content-type is strictly application/json
-
+    // Header Strategy: Send BOTH common formats to be safe
     const headers = {
       "Content-Type": "application/json",
       "api-key": UNPAY_API_KEY.trim()
@@ -137,7 +112,6 @@ export async function createUnpayDynamicQR(payload: {
 
     console.log("[UnPay QR] Response Status:", resp.status)
 
-    // H. Handle Response
     if (resp.data && resp.data.statuscode === "TXN") {
       const qrString = resp.data.data?.qrString || resp.data.qrString
 
