@@ -1,11 +1,18 @@
 import axios from "axios"
 import crypto from "crypto"
+import https from "https"
 import { UNPAY_PARTNER_ID, UNPAY_API_KEY } from "../config/unpay"
 import unpayClient from "../config/unpay"
 
 // ==========================================
 // UNPAY DYNAMIC QR INTEGRATION (FINAL)
 // ==========================================
+
+// Create HTTPS Agent to force IPv4
+const httpsAgent = new https.Agent({
+  family: 4,
+  keepAlive: true,
+})
 
 // 1. Strict AES Key Buffer (Forced AES-128)
 function getAesKeyBuffer(): Buffer {
@@ -109,7 +116,7 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   try {
-    console.log(`[UnPay QR] Sending Request to: ${finalUrl}`)
+    console.log(`[UnPay QR] Sending Request to: ${finalUrl} (Forcing IPv4)`)
 
     // Header Strategy: Send BOTH common formats to be safe
     // Also include Authorization: 'Bearer ...' just in case? No, api-key is standard.
@@ -120,7 +127,8 @@ export async function createUnpayDynamicQR(payload: {
 
     const resp = await axios.post(finalUrl, requestBody, {
       headers: headers,
-      timeout: 15000
+      timeout: 15000,
+      httpsAgent: httpsAgent, // Force IPv4
     })
 
     console.log("[UnPay QR] Response Status:", resp.status)
@@ -178,7 +186,9 @@ export async function createUnpayTransaction(payload: {
   }
 
   try {
-    const resp = await unpayClient.post("/payin/order/create", body)
+    const resp = await unpayClient.post("/payin/order/create", body, {
+      httpsAgent: httpsAgent // Apply IPv4 Force here too
+    })
     if (resp.data?.statuscode !== "TXN") {
       throw new Error(resp.data?.message || "Order failed")
     }
