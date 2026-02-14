@@ -6,46 +6,44 @@ import net from "net"
 import {
   UNPAY_PARTNER_ID,
   UNPAY_API_KEY,
-  UNPAY_AES_KEY,
+  UNPAY_BASE_URL,
 } from "../config/unpay"
 import unpayClient from "../config/unpay"
 
 // ======================
-// AES Encrypt / Decrypt (STRICT UNPAY FORMAT)
-// ======================
-
-// ======================
-// AES Encrypt (AES-128-ECB)
+// AES Encrypt / Decrypt (STRICT UNPAY FORMAT: AES-256-ECB)
 // ======================
 
 function getAesKeyBuffer(): Buffer {
-  if (!UNPAY_AES_KEY) {
-    throw new Error("UNPAY_AES_KEY is missing")
+  const keyRaw = process.env.UNPAY_AES_KEY
+  if (!keyRaw) {
+    throw new Error("UNPAY_AES_KEY is missing in process.env")
   }
-  // Use first 16 bytes for AES-128
-  return Buffer.from(UNPAY_AES_KEY, "utf8").subarray(0, 16)
+
+  const key = Buffer.from(keyRaw, "utf8")
+
+  if (key.length !== 32) {
+    throw new Error(`UNPAY_AES_KEY must be exactly 32 bytes (got ${key.length})`)
+  }
+
+  return key
 }
 
 export function encryptAES(data: string): string {
   const key = getAesKeyBuffer()
-
-  // AES-128-ECB does not use IV
-  const cipher = crypto.createCipheriv("aes-128-ecb", key, null)
-
+  const cipher = crypto.createCipheriv("aes-256-ecb", key, null)
+  cipher.setAutoPadding(true)
   let encrypted = cipher.update(data, "utf8", "hex")
   encrypted += cipher.final("hex")
-
-  return encrypted.toUpperCase() // Must be UPPERCASE
+  return encrypted.toUpperCase()
 }
 
 export function decryptAES(enc: string): string {
   const key = getAesKeyBuffer()
-
-  const decipher = crypto.createDecipheriv("aes-128-ecb", key, null)
-
+  const decipher = crypto.createDecipheriv("aes-256-ecb", key, null)
+  decipher.setAutoPadding(true)
   let decrypted = decipher.update(enc, "hex", "utf8")
   decrypted += decipher.final("utf8")
-
   return decrypted
 }
 
@@ -85,7 +83,7 @@ export async function getUnpayIp(): Promise<string> {
 }
 
 // ======================
-// Create Pay-In Order (Existing)
+// Create Pay-In Order (Existing - Using unpayClient)
 // ======================
 
 export async function createUnpayTransaction(payload: {
@@ -141,11 +139,7 @@ export async function createUnpayTransaction(payload: {
 }
 
 // ======================
-// Create Dynamic QR (UPDATED)
-// ======================
-
-// ======================
-// Create Dynamic QR (API-KEY IN HEADER ONLY)
+// Create Dynamic QR (STRICT AES-256-ECB & DIRECT AXIOS)
 // ======================
 
 export async function createUnpayDynamicQR(payload: {
@@ -153,7 +147,7 @@ export async function createUnpayDynamicQR(payload: {
   apitxnid: string
   webhook?: string
 }) {
-  if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) {
+  if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY || !UNPAY_BASE_URL) {
     throw new Error("UnPay credentials missing")
   }
 
@@ -175,63 +169,53 @@ export async function createUnpayDynamicQR(payload: {
   // ======================
 
   const innerPayload = {
-    partner_id: Number(UNPAY_PARTNER_ID),
+    partner_id: UNPAY_PARTNER_ID, // Send exactly as is via config
     apitxnid: payload.apitxnid,
-    amount: amount,
+    amount,
     webhook,
-    // ip_address REMOVED as per strict docs
   }
 
-  const jsonString = JSON.stringify(innerPayload)
-
-  // Log payload structure for debugging
-  console.log(
-    "[UnPay QR] Inner Payload (Plain):",
-    JSON.stringify(innerPayload, null, 2)
-  )
-
   // ======================
-  // 2. Encrypt (AES-128-ECB, Hex, Uppercase)
+  // 2. Encrypt (AES-256-ECB, Hex, Uppercase, AutoPadding)
   // ======================
 
-  const encryptedString = encryptAES(jsonString)
-
-  console.log("[UnPay QR] Encrypted Body (First 50 chars):", encryptedString.substring(0, 50) + "...")
+  const encryptedString = encryptAES(JSON.stringify(innerPayload))
 
   // ======================
-  // 3. Send Request (STRICT FORMAT)
+  // 3. Prepare Request Parts
   // ======================
 
-  const requestBody = {
+  const endpoint = "/next/upi/request/qr"
+  // Ensure base URL doesn't have trailing slash if endpoint has leading slash
+  const baseUrl = UNPAY_BASE_URL.replace(/\/$/, "")
+  const finalUrl = `${baseUrl}${endpoint}`
+
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "api-key": UNPAY_API_KEY
+  }
+
+  const bodyData = {
     body: encryptedString
-    // NO api_key here
   }
 
+  // ======================
+  // 4. Debug Log (STRICT FORMAT)
+  // ======================
 
-  console.log("[UnPay QR] Request Config Check:", {
-    url: "/next/upi/request/qr",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "api-key": "PRESENT (Hidden)"
-    },
-    bodyKeys: Object.keys(requestBody)
-  })
+  console.log(`[UNPAY DEBUG]
+URL: ${finalUrl}
+Header Keys: ${Object.keys(headers).join(", ")}
+Body Keys: ${Object.keys(bodyData).join(", ")}
+Encrypted Length: ${encryptedString.length}`)
+
+  // ======================
+  // 5. Send Request (Direct Axios)
+  // ======================
 
   try {
-    const resp = await unpayClient.post(
-      "/next/upi/request/qr",
-      requestBody,
-      {
-        headers: {
-          "api-key": UNPAY_API_KEY, // MANDATORY: api-key in HEADER
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        }
-      }
-    )
-
-    console.log("[UnPay QR] Response Status:", resp.status)
+    const resp = await axios.post(finalUrl, bodyData, { headers })
 
     if (resp.data?.statuscode !== "TXN") {
       console.error("[UnPay QR] Failed Response:", JSON.stringify(resp.data, null, 2))
@@ -248,7 +232,6 @@ export async function createUnpayDynamicQR(payload: {
       "[UnPay QR] Error:",
       err.response?.data || err.message
     )
-
     throw new Error(err.response?.data?.message || "UnPay Dynamic QR failed")
   }
 }
