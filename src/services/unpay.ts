@@ -88,18 +88,20 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   const innerPayload = {
-    partner_id: parseInt(String(UNPAY_PARTNER_ID), 10),
+    partner_id: String(UNPAY_PARTNER_ID), // 👈 FORCE STRING as per direct user edit pattern
     apitxnid: payload.apitxnid,
     amount: amount,
     webhook: webhook
   }
 
   // Minified JSON logging for debug
+  // THIS IS THE ONLY STRINGIFY BEFORE ENCRYPTION
   const jsonPayload = JSON.stringify(innerPayload)
   console.log("[UnPay QR] Inner Payload (Minified):", jsonPayload)
 
   let encryptedString: string
   try {
+    // Encrypt the RAW JSON STRING directly. No double wrapping.
     encryptedString = encryptAES(jsonPayload)
     console.log(`[UnPay QR] Encryption Success. Output Length: ${encryptedString.length}`)
   } catch (err: any) {
@@ -183,11 +185,12 @@ export async function createUnpayTransaction(payload: {
   if (!webhookUrl) throw new Error("UNPAY_WEBHOOK_URL missing")
 
   const body = {
-    partner_id: UNPAY_PARTNER_ID,
+    partner_id: String(UNPAY_PARTNER_ID),  // 👈 FORCE STRING
     apitxnid: orderId,
-    amount,
+    amount: Number(amount),               // keep amount numeric
     webhook: webhookUrl,
-  }
+  };
+
 
   try {
     const resp = await unpayClient.post("/payin/order/create", body, {
