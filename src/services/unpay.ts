@@ -10,7 +10,7 @@ import {
 import unpayClient from "../config/unpay"
 
 // ======================
-// AES Encrypt (AES-128-ECB)
+// AES Encrypt / Decrypt (AES-128-ECB)
 // ======================
 
 function getAesKeyBuffer(): Buffer {
@@ -36,8 +36,25 @@ export function encryptAES(data: string): string {
   cipher.setAutoPadding(true)
   let encrypted = cipher.update(data, "utf8", "hex")
   encrypted += cipher.final("hex")
-  return encrypted.toUpperCase() // Uppercase HEX per requirements if implied by previous context, but usually hex is standard. User asked for exact working code.
+  return encrypted.toUpperCase()
 }
+
+export function decryptAES(enc: string): string {
+  const key = getAesKeyBuffer()
+  // AES-128-ECB, no IV, PKCS7 padding (default)
+  const decipher = crypto.createDecipheriv("aes-128-ecb", key, null)
+  decipher.setAutoPadding(true)
+  let decrypted = decipher.update(enc, "hex", "utf8")
+  decrypted += decipher.final("utf8")
+  return decrypted
+}
+
+// Export a dummy or actual getUnpayIp if needed for tests, 
+// though we disabled the test endpoint in payments.ts. 
+// User asked to "Remove unused imports if not required", and we did in payments.ts.
+// But we should export it if it was part of the original contract or useful.
+// The user prompt said: "3. If decryptAES is required, implement it... 5. Provide final corrected: payments.ts import section - unpay.ts exports section".
+// I will export decryptAES but skip getUnpayIp since it's not used now, to keep file clean.
 
 // ======================
 // Create Pay-In Order (Existing - Using unpayClient)
