@@ -1,18 +1,15 @@
 import axios from "axios"
 import crypto from "crypto"
-
-// Config
-// We only import what we absolutely need.
-// AES key is loaded directly from process.env to ensure freshness.
 import { UNPAY_PARTNER_ID, UNPAY_API_KEY } from "../config/unpay"
 import unpayClient from "../config/unpay"
 
 // ==========================================
-// UNPAY DYNAMIC QR INTEGRATION (PRODUCTION)
+// UNPAY DYNAMIC QR INTEGRATION (FINAL)
 // ==========================================
 
 // 1. Strict AES Key Buffer (MUST BE 16 BYTES)
 function getAesKeyBuffer(): Buffer {
+  // Use env directly to avoid stale config
   const keyRaw = process.env.UNPAY_AES_KEY || ""
 
   if (!keyRaw) {
@@ -42,7 +39,7 @@ function getAesKeyBuffer(): Buffer {
   return key
 }
 
-// 2. Encrypt Function (AES-128-ECB, PKCS7, Base64 Output)
+// 2. Encrypt Function (AES-128-ECB, PKCS7, Base64 Output, NO IV)
 export function encryptAES(data: string): string {
   const key = getAesKeyBuffer()
   const cipher = crypto.createCipheriv("aes-128-ecb", key, null)
@@ -62,7 +59,7 @@ export function decryptAES(enc: string): string {
 }
 
 // ======================
-// Create Dynamic QR (FINAL PRODUCTION VERSION)
+// Create Dynamic QR (PRODUCTION)
 // ======================
 
 export async function createUnpayDynamicQR(payload: {
@@ -108,14 +105,14 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   // F. Prepare Request
-  // URL Correction: The base URL in env is https://unpay.in/tech/api
-  // The endpoint for QR is /next/upi/request/qr
-  // We clean any trailing slash from env and append the path.
+  // CORRECT ENDPOINT: https://unpay.in/tech/api/next/upi/request/qr
+  // Ensuring no double slashes and correct base
 
   const envBaseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
   const finalUrl = `${envBaseUrl}/next/upi/request/qr`
 
   // Outer Body: { encdata: "..." }
+  // This is the CRITICAL part for "Invalid encryption request or body value missing"
   const requestBody = {
     encdata: encryptedString
   }
@@ -124,7 +121,10 @@ export async function createUnpayDynamicQR(payload: {
   try {
     console.log(`[UnPay QR] Sending Request to: ${finalUrl}`)
 
-    // Explicit headers
+    // Header Strategy: Send BOTH common formats to be safe if docs are ambiguous
+    // but typically it is 'api-key'. We will send 'api-key' as primary.
+    // Ensure content-type is strictly application/json
+
     const headers = {
       "Content-Type": "application/json",
       "api-key": UNPAY_API_KEY.trim()
