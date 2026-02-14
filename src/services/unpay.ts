@@ -24,7 +24,6 @@ function getAesKeyBuffer(): Buffer {
   if (keyRaw.length === 32 && /^[0-9a-fA-F]+$/.test(keyRaw)) {
     key = Buffer.from(keyRaw, "hex")
     if (key.length !== 16) {
-      // Fallback if hex parsing somehow failed to produce 16 bytes (unlikely with regex check)
       throw new Error(`Invalid Hex key length: ${key.length}`)
     }
   }
@@ -32,10 +31,7 @@ function getAesKeyBuffer(): Buffer {
   else if (keyRaw.length === 16) {
     key = Buffer.from(keyRaw, "utf8")
   }
-  // 3. Last ditch effort: if it's longer/shorter but we need 16 bytes for AES-128
   else {
-    // Try to use it as utf8 and slice/pad? No, strict mode requested.
-    // But user said "Key supports: 32 hex string -> convert... 16 char string -> use utf8"
     throw new Error(`UNPAY_AES_KEY invalid format. Must be 32-char HEX or 16-char UTF-8. Got length: ${keyRaw.length}`)
   }
 
