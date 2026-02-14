@@ -19,7 +19,13 @@ function getAesKeyBuffer(): Buffer {
     throw new Error("UNPAY_AES_KEY is missing in process.env")
   }
 
-  // Ensure 16 bytes for AES-128 if key is longer (e.g. 32 bytes provided for AES-256)
+  // Detect if key is 32 chars hex (16 bytes) or raw 16 bytes
+  if (keyRaw.length === 32 && /^[0-9a-fA-F]+$/.test(keyRaw)) {
+    // It's a hex string representing 16 bytes
+    return Buffer.from(keyRaw, "hex")
+  }
+
+  // Clean fallback (same as before but explicit)
   const key = Buffer.from(keyRaw, "utf8")
 
   if (key.length >= 16) {

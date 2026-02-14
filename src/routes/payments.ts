@@ -447,8 +447,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         console.log("[UnPay][create-order] Requesting Dynamic QR with:", {
           amount,
           apitxnid: order.id,
-          customer_email: notes?.email,
-          currency: currency,
+          // REMOVED EXTRA FIELDS FROM LOGGING
           webhook: process.env.UNPAY_WEBHOOK_URL,
         });
 
@@ -728,75 +727,6 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     res.status(500).json({
       success: false,
       message: error.message || "Failed to create order",
-    })
-  }
-})
-
-// Verify Payment
-router.post("/verify-payment", async (req: Request, res: Response) => {
-  try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body as VerifyPaymentRequest
-
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing payment details",
-      })
-    }
-
-    // Verify signature
-    const isSignatureValid = verifySignature(
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      process.env.RAZORPAY_KEY_SECRET || "",
-    )
-
-    if (!isSignatureValid) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid payment signature",
-      })
-    }
-
-    // Fetch payment details from Razorpay
-    const payment = await razorpay.payments.fetch(razorpay_payment_id)
-
-    // Update in-memory transaction and DB record
-    const transaction = transactions.get(razorpay_order_id)
-    if (transaction) {
-      transaction.payment_id = razorpay_payment_id
-      transaction.status = payment.status === "captured" ? "completed" : "pending"
-      transaction.updated_at = new Date().toISOString()
-    }
-
-    try {
-      await Transaction.findOneAndUpdate(
-        { orderId: razorpay_order_id },
-        {
-          $set: {
-            paymentId: razorpay_payment_id,
-            status: payment.status === "captured" ? "completed" : "pending",
-            updatedAt: new Date(),
-          },
-        },
-        { upsert: false },
-      )
-    } catch (err) {
-      console.error("Failed to update DB transaction:", err)
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Payment verified successfully",
-      order_id: razorpay_order_id,
-      payment_id: razorpay_payment_id,
-    })
-  } catch (error: any) {
-    console.error("Error verifying payment:", error)
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to verify payment",
     })
   }
 })
