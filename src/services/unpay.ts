@@ -119,10 +119,11 @@ export async function createUnpayDynamicQR(payload: {
     console.log(`[UnPay QR] Sending Request to: ${finalUrl} (Forcing IPv4)`)
 
     // Header Strategy: Send BOTH common formats to be safe
-    // Also include Authorization: 'Bearer ...' just in case? No, api-key is standard.
+    // Key MUST be plain text, matching process.env.UNPAY_API_KEY
     const headers = {
       "Content-Type": "application/json",
-      "api-key": UNPAY_API_KEY.trim()
+      "Accept": "application/json",
+      "api_key": UNPAY_API_KEY.trim()
     }
 
     const resp = await axios.post(finalUrl, requestBody, {
