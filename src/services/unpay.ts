@@ -5,7 +5,6 @@ import crypto from "crypto"
 import {
   UNPAY_PARTNER_ID,
   UNPAY_API_KEY,
-  UNPAY_BASE_URL,
 } from "../config/unpay"
 import unpayClient from "../config/unpay"
 
@@ -19,36 +18,47 @@ function getAesKeyBuffer(): Buffer {
     throw new Error("UNPAY_AES_KEY is missing in process.env")
   }
 
-  // Detect if key is 32 chars hex (16 bytes) or raw 16 bytes
+  let key: Buffer
+
+  // 1. Try parsing as 32-char Hex (16 bytes)
   if (keyRaw.length === 32 && /^[0-9a-fA-F]+$/.test(keyRaw)) {
-    // It's a hex string representing 16 bytes
-    return Buffer.from(keyRaw, "hex")
+    key = Buffer.from(keyRaw, "hex")
+    if (key.length !== 16) {
+      // Fallback if hex parsing somehow failed to produce 16 bytes (unlikely with regex check)
+      throw new Error(`Invalid Hex key length: ${key.length}`)
+    }
+  }
+  // 2. Treat as 16-char UTF-8 string
+  else if (keyRaw.length === 16) {
+    key = Buffer.from(keyRaw, "utf8")
+  }
+  // 3. Last ditch effort: if it's longer/shorter but we need 16 bytes for AES-128
+  else {
+    // Try to use it as utf8 and slice/pad? No, strict mode requested.
+    // But user said "Key supports: 32 hex string -> convert... 16 char string -> use utf8"
+    throw new Error(`UNPAY_AES_KEY invalid format. Must be 32-char HEX or 16-char UTF-8. Got length: ${keyRaw.length}`)
   }
 
-  // Clean fallback (default utf8)
-  const key = Buffer.from(keyRaw, "utf8")
-
-  if (key.length >= 16) {
-    return key.subarray(0, 16)
-  }
-
-  throw new Error(`UNPAY_AES_KEY must be at least 16 bytes (got ${key.length})`)
+  console.log(`[UnPay Security] AES Key loaded. Length: ${key.length} bytes`)
+  return key
 }
 
 export function encryptAES(data: string): string {
   const key = getAesKeyBuffer()
+
   // AES-128-ECB, no IV, PKCS7 padding (default)
   const cipher = crypto.createCipheriv("aes-128-ecb", key, null)
   cipher.setAutoPadding(true)
+
+  // Output MUST be BASE64
   let encrypted = cipher.update(data, "utf8", "base64")
   encrypted += cipher.final("base64")
-  // Return Base64 directly
+
   return encrypted
 }
 
 export function decryptAES(enc: string): string {
   const key = getAesKeyBuffer()
-  // AES-128-ECB, no IV, PKCS7 padding (default)
   const decipher = crypto.createDecipheriv("aes-128-ecb", key, null)
   decipher.setAutoPadding(true)
   let decrypted = decipher.update(enc, "base64", "utf8")
@@ -114,7 +124,7 @@ export async function createUnpayTransaction(payload: {
 
 
 // ======================
-// Create Dynamic QR (AES-128-ECB & Base64 Payload)
+// Create Dynamic QR (Strict AES-128-ECB & Base64 Payload)
 // ======================
 
 export async function createUnpayDynamicQR(payload: {
@@ -157,23 +167,17 @@ export async function createUnpayDynamicQR(payload: {
   // ======================
 
   const encryptedString = encryptAES(JSON.stringify(innerPayload))
+  console.log(`[UnPay Security] Encrypted Payload Length: ${encryptedString.length}`)
 
   // ======================
   // 3. Prepare Request
   // ======================
 
-  // Using strict endpoint "https://unpay.in/tech/api" as per user request
-  // Assuming full path is constructed appropriately. If UNPAY_BASE_URL is set, utilize it, else fallback.
-  // User asked for "full axios POST example to: https://unpay.in/tech/api".
-  // This likely implies: POST https://unpay.in/tech/api/next/upi/request/qr
-
-  const baseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
-  const finalUrl = `${baseUrl}/next/upi/request/qr`
+  const finalUrl = "https://unpay.in/tech/api/next/upi/request/qr"
 
   const headers = {
-    "accept": "application/json",
     "api-key": UNPAY_API_KEY,
-    "content-type": "application/json"
+    "Content-Type": "application/json"
   }
 
   const bodyData = {
@@ -187,14 +191,16 @@ export async function createUnpayDynamicQR(payload: {
   try {
     console.log("[UnPay QR] Requesting:", finalUrl)
 
-    const resp = await axios.post(finalUrl, bodyData, { headers })
+    // Explicitly disabling serialization issues by sending plain object (axios handles JSON)
+    const resp = await axios.post(finalUrl, bodyData, {
+      headers: headers,
+      timeout: 10000
+    })
 
     // Log raw response
     console.log("[UnPay QR] FULL RAW RESPONSE:", JSON.stringify(resp.data, null, 2))
 
     if (resp.data?.statuscode === "TXN") {
-      // Extract qrString from success response
-      // Expected format: resp.data.data.qrString | resp.data.qrString
       const qrString = resp.data?.data?.qrString || resp.data?.qrString;
 
       if (!qrString) {
