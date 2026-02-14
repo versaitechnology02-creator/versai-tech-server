@@ -49,13 +49,6 @@ export function decryptAES(enc: string): string {
   return decrypted
 }
 
-// Export a dummy or actual getUnpayIp if needed for tests, 
-// though we disabled the test endpoint in payments.ts. 
-// User asked to "Remove unused imports if not required", and we did in payments.ts.
-// But we should export it if it was part of the original contract or useful.
-// The user prompt said: "3. If decryptAES is required, implement it... 5. Provide final corrected: payments.ts import section - unpay.ts exports section".
-// I will export decryptAES but skip getUnpayIp since it's not used now, to keep file clean.
-
 // ======================
 // Create Pay-In Order (Existing - Using unpayClient)
 // ======================
@@ -114,7 +107,7 @@ export async function createUnpayTransaction(payload: {
 
 
 // ======================
-// Create Dynamic QR (AES-128-ECB)
+// Create Dynamic QR (AES-128-ECB & Strict Payload)
 // ======================
 
 export async function createUnpayDynamicQR(payload: {
@@ -140,7 +133,7 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   // ======================
-  // 1. Create JSON Payload (Minimal)
+  // 1. Create JSON Payload (Minimal - REMOVE ALL EXTRA FIELDS)
   // ======================
 
   const innerPayload = {
@@ -148,7 +141,12 @@ export async function createUnpayDynamicQR(payload: {
     apitxnid: payload.apitxnid,
     amount: amount,
     webhook: webhook
+    // NO currency
+    // NO customer_email
+    // NO ip
   }
+
+  console.log("[UnPay QR] Inner Payload (Before Encryption):", JSON.stringify(innerPayload, null, 2))
 
   // ======================
   // 2. Encrypt (AES-128-ECB)
@@ -183,31 +181,23 @@ export async function createUnpayDynamicQR(payload: {
     // Log raw response
     console.log("[UnPay QR] FULL RAW RESPONSE:", JSON.stringify(resp.data, null, 2))
 
-    if (resp.data?.statuscode === "ERR") {
-      throw new Error(resp.data?.message || "UnPay returned error")
-    }
+    // Check strict status code
+    if (resp.data?.statuscode === "TXN") {
+      // Extract qrString from success response
+      // Expected format: resp.data.data.qrString
+      const qrString = resp.data?.data?.qrString;
 
-    // Extract qrString from success response
-    // Response format based on user description: resp.data.data.qrString
-    const qrString = resp.data?.data?.qrString;
-
-    if (!qrString) {
-      // If not found, check other possible locations in case of structure variance
-      const fallbackQr = resp.data?.qrString || resp.data?.qr_string;
-      if (!fallbackQr) {
-        console.warn("[UnPay QR] QR String not found in expected path resp.data.data.qrString")
+      if (!qrString) {
+        console.warn("[UnPay QR] Warning: 'TXN' status received but qrString missing in resp.data.data")
       }
+
       return {
-        success: true, // Request succeeded even if QR extraction is tricky, allowing upstream to handle raw if needed
-        qrString: fallbackQr || null,
+        qrString: qrString || null,
         raw: resp.data
       }
-    }
-
-    return {
-      success: true,
-      qrString: qrString,
-      raw: resp.data
+    } else {
+      // If not TXN, throw strict error
+      throw new Error(resp.data?.message || "UnPay returned non-TXN status")
     }
 
   } catch (err: any) {
