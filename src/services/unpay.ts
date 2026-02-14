@@ -118,6 +118,9 @@ export async function createUnpayDynamicQR(payload: {
   try {
     console.log(`[UnPay QR] Sending Request to: ${finalUrl} (Forcing IPv4)`)
 
+    // DEBUG: Check if API Key is actually loaded
+    console.log("[UnPay QR] UNPAY_API_KEY (first 5):", UNPAY_API_KEY ? UNPAY_API_KEY.substring(0, 5) : "undefined")
+
     // Header Strategy: Send BOTH common formats to be safe
     // Key MUST be plain text, matching process.env.UNPAY_API_KEY
     const headers = {
