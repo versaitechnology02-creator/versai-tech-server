@@ -139,7 +139,7 @@ export async function createUnpayTransaction(payload: {
 }
 
 // ======================
-// Create Dynamic QR (STRICT AES-256-ECB & DIRECT AXIOS)
+// Create Dynamic QR (ULTRA-STRICT FIX: API-KEY Header Case, URL Slashes, Raw Response)
 // ======================
 
 export async function createUnpayDynamicQR(payload: {
@@ -182,18 +182,17 @@ export async function createUnpayDynamicQR(payload: {
   const encryptedString = encryptAES(JSON.stringify(innerPayload))
 
   // ======================
-  // 3. Prepare Request Parts
+  // 3. Prepare Request Parts (STRICT URL & HEADER)
   // ======================
 
-  const endpoint = "/next/upi/request/qr"
-  // Ensure base URL doesn't have trailing slash if endpoint has leading slash
+  // Ensure: No double slashes
   const baseUrl = UNPAY_BASE_URL.replace(/\/$/, "")
-  const finalUrl = `${baseUrl}${endpoint}`
+  const finalUrl = `${baseUrl}/next/upi/request/qr`
 
+  // Headers: EXACTLY "Api-Key" and "Content-Type", NO Accept
   const headers = {
     "Content-Type": "application/json",
-    "Accept": "application/json",
-    "api-key": UNPAY_API_KEY
+    "Api-Key": UNPAY_API_KEY
   }
 
   const bodyData = {
@@ -204,11 +203,11 @@ export async function createUnpayDynamicQR(payload: {
   // 4. Debug Log (STRICT FORMAT)
   // ======================
 
-  console.log(`[UNPAY DEBUG]
-URL: ${finalUrl}
-Header Keys: ${Object.keys(headers).join(", ")}
-Body Keys: ${Object.keys(bodyData).join(", ")}
-Encrypted Length: ${encryptedString.length}`)
+  console.log("=== FINAL UNPAY REQUEST ===")
+  console.log("URL:", finalUrl)
+  console.log("Headers:", headers)
+  console.log("Body Keys:", Object.keys(bodyData))
+  console.log("Encrypted Length:", encryptedString.length)
 
   // ======================
   // 5. Send Request (Direct Axios)
@@ -217,16 +216,11 @@ Encrypted Length: ${encryptedString.length}`)
   try {
     const resp = await axios.post(finalUrl, bodyData, { headers })
 
-    if (resp.data?.statuscode !== "TXN") {
-      console.error("[UnPay QR] Failed Response:", JSON.stringify(resp.data, null, 2))
-      throw new Error(resp.data?.message || "QR Generation failed")
-    }
+    console.log("[UnPay QR] Response Status:", resp.status)
 
-    return {
-      apitxnid: resp.data.data.apitxnid,
-      qrString: resp.data.data.qrString,
-      time: resp.data.data.time,
-    }
+    // RETURN FULL RAW RESPONSE FOR DEBUG
+    return resp.data
+
   } catch (err: any) {
     console.error(
       "[UnPay QR] Error:",
