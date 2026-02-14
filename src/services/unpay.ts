@@ -139,7 +139,7 @@ export async function createUnpayTransaction(payload: {
 }
 
 // ======================
-// Create Dynamic QR (ULTRA-STRICT FIX: API-KEY Header Case, URL Slashes, Raw Response)
+// Create Dynamic QR (MANDATORY FIXES: IP, Headers, URL)
 // ======================
 
 export async function createUnpayDynamicQR(payload: {
@@ -164,8 +164,11 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Webhook missing")
   }
 
+  // 1. Fetch IP first (Must be in payload)
+  const ip = await getUnpayIp()
+
   // ======================
-  // 1. Create JSON Payload (NO EXTRA FIELDS)
+  // 2. Create JSON Payload (INCLUDE IP)
   // ======================
 
   const innerPayload = {
@@ -173,16 +176,17 @@ export async function createUnpayDynamicQR(payload: {
     apitxnid: payload.apitxnid,
     amount,
     webhook,
+    ip // ADDED
   }
 
   // ======================
-  // 2. Encrypt (AES-256-ECB, Hex, Uppercase, AutoPadding)
+  // 3. Encrypt (AES-256-ECB, Hex, Uppercase, AutoPadding)
   // ======================
 
   const encryptedString = encryptAES(JSON.stringify(innerPayload))
 
   // ======================
-  // 3. Prepare Request Parts (STRICT URL & HEADER)
+  // 4. Prepare Request Parts (STRICT URL & HEADER)
   // ======================
 
   // Ensure: No double slashes
@@ -200,17 +204,17 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   // ======================
-  // 4. Debug Log (STRICT FORMAT)
+  // 5. Debug Log (STRICT FORMAT)
   // ======================
 
-  console.log("=== FINAL UNPAY REQUEST ===")
+  console.log("[UNPAY DEBUG]")
   console.log("URL:", finalUrl)
-  console.log("Headers:", headers)
-  console.log("Body Keys:", Object.keys(bodyData))
+  console.log("Header Keys:", Object.keys(headers).join(", "))
+  console.log("Body Keys:", Object.keys(bodyData).join(", "))
   console.log("Encrypted Length:", encryptedString.length)
 
   // ======================
-  // 5. Send Request (Direct Axios)
+  // 6. Send Request (Direct Axios)
   // ======================
 
   try {
@@ -218,7 +222,7 @@ export async function createUnpayDynamicQR(payload: {
 
     console.log("[UnPay QR] Response Status:", resp.status)
 
-    // RETURN FULL RAW RESPONSE FOR DEBUG
+    // RETURN FULL RAW RESPONSE
     return resp.data
 
   } catch (err: any) {
