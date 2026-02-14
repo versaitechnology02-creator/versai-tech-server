@@ -7,7 +7,7 @@ import unpayClient from "../config/unpay"
 // UNPAY DYNAMIC QR INTEGRATION (FINAL)
 // ==========================================
 
-// 1. Strict AES Key Buffer (AES-128 or AES-256)
+// 1. Strict AES Key Buffer (Forced AES-128)
 function getAesKeyBuffer(): Buffer {
   const keyRaw = process.env.UNPAY_AES_KEY || ""
 
@@ -15,37 +15,23 @@ function getAesKeyBuffer(): Buffer {
     throw new Error("UNPAY_AES_KEY is missing")
   }
 
-  let key: Buffer
+  // FORCE TRUNCATION TO 16 CHARS (AES-128)
+  // UnPay often provides a 32-char string but expects AES-128 using the first 16 chars.
+  const keyPart = keyRaw.substring(0, 16)
 
-  // CASE A: 32-char Hex String -> Convert to 16 bytes
-  if (keyRaw.length === 32 && /^[0-9a-fA-F]+$/.test(keyRaw)) {
-    key = Buffer.from(keyRaw, "hex")
-  }
-  // CASE B: 32-char UTF-8 String -> Use directly (AES-256)
-  else if (keyRaw.length === 32) {
-    key = Buffer.from(keyRaw, "utf8")
-  }
-  // CASE C: 16-char UTF-8 String -> Use directly (AES-128)
-  else if (keyRaw.length === 16) {
-    key = Buffer.from(keyRaw, "utf8")
-  }
-  else {
-    throw new Error(`UNPAY_AES_KEY invalid length: ${keyRaw.length}. Must be 16 or 32 chars.`)
-  }
-
-  return key
+  // Use UTF-8 parsing for the key
+  return Buffer.from(keyPart, "utf8")
 }
 
 // 2. Encrypt Function (AES-ECB, PKCS7, Base64 Output, NO IV)
 export function encryptAES(data: string): string {
   const key = getAesKeyBuffer()
 
-  // Decide Algo based on Key Length
-  let algo = "aes-128-ecb"
-  if (key.length === 32) {
-    algo = "aes-256-ecb"
-  } else if (key.length !== 16) {
-    throw new Error(`Invalid AES Key length: ${key.length}. Must be 16 or 32 bytes.`)
+  // FORCE AES-128-ECB
+  const algo = "aes-128-ecb"
+
+  if (key.length !== 16) {
+    throw new Error(`Invalid AES Key length for AES-128: ${key.length}. Must be 16 bytes.`)
   }
 
   console.log(`[UnPay Security] Using Encryption: ${algo}, Key Length: ${key.length} bytes`)
@@ -59,10 +45,7 @@ export function encryptAES(data: string): string {
 
 export function decryptAES(enc: string): string {
   const key = getAesKeyBuffer()
-  let algo = "aes-128-ecb"
-  if (key.length === 32) {
-    algo = "aes-256-ecb"
-  }
+  const algo = "aes-128-ecb"
 
   const decipher = crypto.createDecipheriv(algo, key, null)
   decipher.setAutoPadding(true)
