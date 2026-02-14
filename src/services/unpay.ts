@@ -25,7 +25,7 @@ function getAesKeyBuffer(): Buffer {
     return Buffer.from(keyRaw, "hex")
   }
 
-  // Clean fallback (same as before but explicit)
+  // Clean fallback (default utf8)
   const key = Buffer.from(keyRaw, "utf8")
 
   if (key.length >= 16) {
@@ -40,9 +40,10 @@ export function encryptAES(data: string): string {
   // AES-128-ECB, no IV, PKCS7 padding (default)
   const cipher = crypto.createCipheriv("aes-128-ecb", key, null)
   cipher.setAutoPadding(true)
-  let encrypted = cipher.update(data, "utf8", "hex")
-  encrypted += cipher.final("hex")
-  return encrypted.toUpperCase()
+  let encrypted = cipher.update(data, "utf8", "base64")
+  encrypted += cipher.final("base64")
+  // Return Base64 directly
+  return encrypted
 }
 
 export function decryptAES(enc: string): string {
@@ -50,7 +51,7 @@ export function decryptAES(enc: string): string {
   // AES-128-ECB, no IV, PKCS7 padding (default)
   const decipher = crypto.createDecipheriv("aes-128-ecb", key, null)
   decipher.setAutoPadding(true)
-  let decrypted = decipher.update(enc, "hex", "utf8")
+  let decrypted = decipher.update(enc, "base64", "utf8")
   decrypted += decipher.final("utf8")
   return decrypted
 }
@@ -113,7 +114,7 @@ export async function createUnpayTransaction(payload: {
 
 
 // ======================
-// Create Dynamic QR (AES-128-ECB & Strict Payload)
+// Create Dynamic QR (AES-128-ECB & Base64 Payload)
 // ======================
 
 export async function createUnpayDynamicQR(payload: {
@@ -121,7 +122,7 @@ export async function createUnpayDynamicQR(payload: {
   apitxnid: string
   webhook?: string
 }) {
-  if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY || !UNPAY_BASE_URL) {
+  if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) {
     throw new Error("UnPay credentials missing")
   }
 
@@ -139,7 +140,7 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   // ======================
-  // 1. Create JSON Payload (Minimal - REMOVE ALL EXTRA FIELDS)
+  // 1. Create JSON Payload (Minimal)
   // ======================
 
   const innerPayload = {
@@ -147,15 +148,12 @@ export async function createUnpayDynamicQR(payload: {
     apitxnid: payload.apitxnid,
     amount: amount,
     webhook: webhook
-    // NO currency
-    // NO customer_email
-    // NO ip
   }
 
   console.log("[UnPay QR] Inner Payload (Before Encryption):", JSON.stringify(innerPayload, null, 2))
 
   // ======================
-  // 2. Encrypt (AES-128-ECB)
+  // 2. Encrypt (AES-128-ECB -> Base64)
   // ======================
 
   const encryptedString = encryptAES(JSON.stringify(innerPayload))
@@ -164,7 +162,12 @@ export async function createUnpayDynamicQR(payload: {
   // 3. Prepare Request
   // ======================
 
-  const baseUrl = UNPAY_BASE_URL.replace(/\/$/, "")
+  // Using strict endpoint "https://unpay.in/tech/api" as per user request
+  // Assuming full path is constructed appropriately. If UNPAY_BASE_URL is set, utilize it, else fallback.
+  // User asked for "full axios POST example to: https://unpay.in/tech/api".
+  // This likely implies: POST https://unpay.in/tech/api/next/upi/request/qr
+
+  const baseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
   const finalUrl = `${baseUrl}/next/upi/request/qr`
 
   const headers = {
@@ -174,7 +177,7 @@ export async function createUnpayDynamicQR(payload: {
   }
 
   const bodyData = {
-    body: encryptedString
+    encdata: encryptedString
   }
 
   // ======================
@@ -182,16 +185,17 @@ export async function createUnpayDynamicQR(payload: {
   // ======================
 
   try {
+    console.log("[UnPay QR] Requesting:", finalUrl)
+
     const resp = await axios.post(finalUrl, bodyData, { headers })
 
     // Log raw response
     console.log("[UnPay QR] FULL RAW RESPONSE:", JSON.stringify(resp.data, null, 2))
 
-    // Check strict status code
     if (resp.data?.statuscode === "TXN") {
       // Extract qrString from success response
-      // Expected format: resp.data.data.qrString
-      const qrString = resp.data?.data?.qrString;
+      // Expected format: resp.data.data.qrString | resp.data.qrString
+      const qrString = resp.data?.data?.qrString || resp.data?.qrString;
 
       if (!qrString) {
         console.warn("[UnPay QR] Warning: 'TXN' status received but qrString missing in resp.data.data")
@@ -202,7 +206,6 @@ export async function createUnpayDynamicQR(payload: {
         raw: resp.data
       }
     } else {
-      // If not TXN, throw strict error
       throw new Error(resp.data?.message || "UnPay returned non-TXN status")
     }
 
