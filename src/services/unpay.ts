@@ -61,86 +61,83 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error(`Invalid amount: ${amount}. Must be positive integer.`)
   }
 
-  const webhook = payload.webhook || process.env.UNPAY_WEBHOOK_URL
+  const webhook =
+    payload.webhook || process.env.UNPAY_WEBHOOK_URL
+
   if (!webhook) {
-    console.error("[UnPay QR] CRITICAL: UNPAY_WEBHOOK_URL is missing in environment variables")
-    throw new Error("Webhook URL is configured. Check UNPAY_WEBHOOK_URL in .env")
+    throw new Error("Webhook URL missing. Set UNPAY_WEBHOOK_URL in environment.")
   }
 
-  // 1. Raw JSON Payload
-  // partner_id: Number (4358)
+  // ✅ FINAL INNER PAYLOAD (ALL STRINGS — IMPORTANT)
   const innerPayload = {
     partner_id: String(UNPAY_PARTNER_ID),
     amount: String(amount),
-    apitxnid: String(apitxnid),
+    apitxnid: String(payload.apitxnid),
     webhook: String(webhook)
   }
 
-  // 2. Stringify
+  // 1️⃣ Stringify
   const jsonString = JSON.stringify(innerPayload)
   console.log("[UnPay QR] Raw JSON:", jsonString)
 
-  // 3. Encrypt
+  // 2️⃣ Encrypt (AES-128-ECB → HEX → UPPERCASE)
   let encryptedHex: string
   try {
     encryptedHex = encryptAES128(jsonString)
-    console.log(`[UnPay QR] Encrypted HEX (Len: ${encryptedHex.length}):`, encryptedHex.substring(0, 50) + "...")
+    console.log(
+      `[UnPay QR] Encrypted HEX (Len: ${encryptedHex.length}):`,
+      encryptedHex.substring(0, 50) + "..."
+    )
   } catch (err: any) {
     console.error("[UnPay QR] Encryption Failed:", err.message)
     throw err
   }
 
-  // 4. Wrap
+  // 3️⃣ Wrap Body
   const requestBody = {
     body: encryptedHex
   }
+
   console.log("[UnPay QR] Final Request Body:", JSON.stringify(requestBody))
 
-  // 5. Send Request
-  const envBaseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
-  const finalUrl = `${envBaseUrl}/next/upi/request/qr`
+  // 4️⃣ Final URL
+  const baseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
+  const finalUrl = `${baseUrl}/next/upi/request/qr`
+
+  console.log("[UnPay QR] Sending Request to:", finalUrl)
 
   try {
-    console.log(`[UnPay QR] Sending Request to: ${finalUrl}`)
-
-    const headers = {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "api-key": UNPAY_API_KEY.trim()
-    }
-
-    const resp = await axios.post(finalUrl, requestBody, {
-      headers: headers,
-      timeout: 15000,
-      httpsAgent: httpsAgent, // Force IPv4
-    })
-
-    console.log("[UnPay QR] Response Status:", resp.status)
-    // console.log("[UnPay QR] Response Data:", JSON.stringify(resp.data))
-
-    if (resp.data && resp.data.statuscode === "TXN") {
-      const qrString = resp.data.data?.qrString || resp.data.qrString
-      if (!qrString) {
-        console.warn("[UnPay QR] Success status (TXN) but qrString missing!")
+    const response = await axios.post(
+      finalUrl,
+      requestBody,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "api-key": UNPAY_API_KEY.trim()
+        },
+        timeout: 15000,
+        httpsAgent: httpsAgent
       }
-      return {
-        qrString: qrString || null,
-        raw: resp.data
-      }
-    } else {
-      const errMsg = resp.data?.message || "Unknown UnPay Error"
-      console.error(`[UnPay QR] API Error: ${errMsg}`, JSON.stringify(resp.data))
-      throw new Error(errMsg)
+    )
+
+    console.log("[UnPay QR] Response Status:", response.status)
+    console.log("[UnPay QR] Response Data:", JSON.stringify(response.data))
+
+    if (response.data?.statuscode !== "TXN") {
+      throw new Error(response.data?.message || "UnPay returned error")
     }
 
-  } catch (err: any) {
-    if (err.response) {
-      console.error("[UnPay QR] HTTP Error:", err.response.status, JSON.stringify(err.response.data))
-      throw new Error(err.response.data?.message || `UnPay HTTP ${err.response.status} - ${JSON.stringify(err.response.data)}`)
-    } else {
-      console.error("[UnPay QR] Network/Code Error:", err.message)
-      throw new Error(err.message || "UnPay Request Failed")
-    }
+    return response.data
+
+  } catch (error: any) {
+    console.error(
+      "[UnPay QR] API Error:",
+      error.response?.data || error.message
+    )
+    throw new Error(
+      error.response?.data?.message || error.message
+    )
   }
 }
 
