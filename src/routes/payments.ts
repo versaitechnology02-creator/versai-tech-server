@@ -459,6 +459,8 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
         // attach unpay info to in-memory transaction
         ; (transaction as any).unpay = unpayResp;
+        console.log("[UnPay Debug] unpayResp:", JSON.stringify(unpayResp, null, 2));
+        console.log("[UnPay Debug] Extracted QR:", unpayResp?.qrString);
 
         // update DB record with unpay qr info
         try {
