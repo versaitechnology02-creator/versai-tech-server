@@ -5,7 +5,7 @@ import { UNPAY_PARTNER_ID, UNPAY_API_KEY, UNPAY_AES_KEY } from "../config/unpay"
 import unpayClient from "../config/unpay"
 
 // ==========================================
-// UNPAY DYNAMIC QR INTEGRATION (AES-128-ECB)
+// UNPAY DYNAMIC QR INTEGRATION (AES-256-ECB)
 // ==========================================
 
 // Create HTTPS Agent to force IPv4
@@ -15,26 +15,50 @@ const httpsAgent = new https.Agent({
 })
 
 // ======================
-// ENCRYPTION HELPER
+// ENCRYPTION HELPER (AES-256-ECB + ZERO PADDING)
 // ======================
 
-function encryptAES128(text: string): string {
-  if (!UNPAY_AES_KEY || UNPAY_AES_KEY.length < 16) {
-    throw new Error(`Invalid AES Key length: ${UNPAY_AES_KEY?.length}. Must be at least 16 chars.`)
+function padZero(text: string): Buffer {
+  const blockSize = 16
+  const buffer = Buffer.from(text, "utf8")
+  const paddingLen = blockSize - (buffer.length % blockSize)
+
+  if (paddingLen === 0 && buffer.length > 0) {
+    return buffer
   }
 
-  // 1. Key: First 16 bytes
-  const key = Buffer.from(UNPAY_AES_KEY.substring(0, 16), "utf8")
+  // Create padding buffer of zeros
+  const padding = Buffer.alloc(paddingLen === 16 ? 0 : paddingLen, 0) // Standard zero padding: if aligned, add nothing? 
+  // Wait, standard Zero padding usually pads to next block if not aligned, or does nothing if aligned. 
+  // BUT PKCS7 always adds. "No padding" usually means literal "No Padding" (crash if not aligned) OR "Zero Padding".
+  // Let's implement rigorous Zero Padding: Pad with \0 to reach multiple of 16.
 
-  // 2. Algorithm: aes-128-ecb
-  const algorithm = "aes-128-ecb"
+  // Re-eval: If client says "No padding", and input is JSON (variable length), we MUST pad to 16 manually.
+  // Common legacy behavior: Pad with \0 up to next block.
 
-  // 3. Create Cipher (Auto Padding = PKCS7)
+  const targetLength = buffer.length + (paddingLen === 16 ? 0 : paddingLen)
+  const padded = Buffer.concat([buffer, Buffer.alloc(targetLength - buffer.length, 0)])
+  return padded
+}
+
+function encryptAES256(text: string): string {
+  if (!UNPAY_AES_KEY || UNPAY_AES_KEY.length !== 32) {
+    throw new Error(`Invalid AES Key length: ${UNPAY_AES_KEY?.length}. Must be strictly 32 chars for AES-256.`)
+  }
+
+  // 1. Key: Full 32 bytes
+  const key = Buffer.from(UNPAY_AES_KEY, "utf8")
+
+  // 2. Algorithm: aes-256-ecb
+  const algorithm = "aes-256-ecb"
+
+  // 3. Create Cipher (No Auto Padding)
   const cipher = crypto.createCipheriv(algorithm, key, null)
-  cipher.setAutoPadding(true)
+  cipher.setAutoPadding(false) // ⚠️ CLIENT REQUESTED "No padding needed" -> We handle it manually.
 
-  // 4. Encrypt
-  let encrypted = cipher.update(text, "utf8", "hex")
+  // 4. Encrypt with Zero Padding
+  const paddedInput = padZero(text)
+  let encrypted = cipher.update(paddedInput).toString("hex")
   encrypted += cipher.final("hex")
 
   // 5. Output: HEX UPPERCASE
@@ -50,7 +74,7 @@ export async function createUnpayDynamicQR(payload: {
   apitxnid: string
   webhook?: string
 }) {
-  console.log("[UnPay QR] Starting Creation Process (AES-128-ECB)...")
+  console.log("[UnPay QR] Starting Creation Process (AES-256-ECB STRICT)...")
 
   if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) {
     throw new Error("UnPay credentials missing (Partner ID or API Key)")
@@ -68,7 +92,7 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Webhook URL missing. Set UNPAY_WEBHOOK_URL in environment.")
   }
 
-  // ✅ FINAL INNER PAYLOAD (ALL STRINGS — IMPORTANT)
+  // ✅ FINAL INNER PAYLOAD (ALL STRINGS)
   const innerPayload = {
     partner_id: String(UNPAY_PARTNER_ID),
     amount: String(amount),
@@ -80,10 +104,10 @@ export async function createUnpayDynamicQR(payload: {
   const jsonString = JSON.stringify(innerPayload)
   console.log("[UnPay QR] Raw JSON:", jsonString)
 
-  // 2️⃣ Encrypt (AES-128-ECB → HEX → UPPERCASE)
+  // 2️⃣ Encrypt (AES-256-ECB → ZERO PAD → HEX → UPPERCASE)
   let encryptedHex: string
   try {
-    encryptedHex = encryptAES128(jsonString)
+    encryptedHex = encryptAES256(jsonString)
     console.log(
       `[UnPay QR] Encrypted HEX (Len: ${encryptedHex.length}):`,
       encryptedHex.substring(0, 50) + "..."
