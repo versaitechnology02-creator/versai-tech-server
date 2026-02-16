@@ -35,10 +35,10 @@ export function encryptAES(data: string): string {
   const key = getAesKeyBuffer()
 
   // FORCE AES-128-ECB
-  const algo = "aes-128-ecb"
+  const algo = "aes-256-ecb"
 
   if (key.length !== 16) {
-    throw new Error(`Invalid AES Key length for AES-128: ${key.length}. Must be 16 bytes.`)
+    throw new Error(`Invalid AES Key length for AES-256: ${key.length}. Must be 16 bytes.`)
   }
 
   console.log(`[UnPay Security] Using Encryption: ${algo}, Key Length: ${key.length} bytes`)
@@ -52,7 +52,7 @@ export function encryptAES(data: string): string {
 
 export function decryptAES(enc: string): string {
   const key = getAesKeyBuffer()
-  const algo = "aes-128-ecb"
+  const algo = "aes-256-ecb"
 
   const decipher = crypto.createDecipheriv(algo, key, null)
   decipher.setAutoPadding(true)
