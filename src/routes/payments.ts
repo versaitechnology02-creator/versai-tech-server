@@ -642,8 +642,9 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     // Extract UPI intents and official gateway hosted links from provider responses
     // CRITICAL: Only return UPI intents or official gateway links, NEVER frontend URLs
 
-    // UnPay: Use qrString for Dynamic QR
-    const unpayQrString = (transaction as any).unpay?.qrString
+    // UnPay: Use qrString for Dynamic QR (Handle nested .data structure)
+    const unpayData = (transaction as any).unpay
+    const unpayQrString = unpayData?.data?.qrString || unpayData?.qrString || null
     const unpayLink = (unpayQrString && typeof unpayQrString === 'string') ? unpayQrString : null
 
     // SMEPay: Use ONLY payment_url (as per requirement - PRIMARY provider)
