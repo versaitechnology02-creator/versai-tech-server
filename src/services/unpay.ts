@@ -70,9 +70,9 @@ export async function createUnpayDynamicQR(payload: {
   // 1. Raw JSON Payload
   // partner_id: Number (4358)
   const innerPayload = {
-    partner_id: Number(UNPAY_PARTNER_ID),
-    apitxnid: String(payload.apitxnid),
-    amount: amount,
+    partner_id: String(UNPAY_PARTNER_ID),
+    amount: String(amount),
+    apitxnid: String(apitxnid),
     webhook: String(webhook)
   }
 
