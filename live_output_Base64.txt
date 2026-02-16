@@ -1,0 +1,22 @@
+--- CONFIG CHECK ---
+Partner ID: 4358
+API Key: BE0Rt...
+AES Key Length: 32
+
+--- PREPARING REQUEST ---
+Inner Payload: {"partner_id":"4358","apitxnid":"TEST_1771223944449","amount":100,"webhook":"https://payments.versaitechnology.com/api/unpay/callback"}
+Encrypted Base64 (First 32): pKE7Ed7DST8wopExDMeXB7+/pFN13g5q...
+Final Request Body: {"body":"pKE7Ed7DST8wopExDMeXB7+/pFN13g5qfO1dpMTEGFhDn2hoQ37utZZ+Pj4Cauhy3JMAFR6h5BS61WxjKHZV3p15Y04Gw25OhfAUw6ymAIrWtfAJa5HsEDr6BuQwJwyCKnpMdXfvTALDKTA4iuVMhqUr17z4IsFFhiMZR3CVUkWZ7COJjSqspsZXtjT4bwqs"}
+Target URL: https://unpay.in/tech/api/next/upi/request/qr
+Headers: {"Content-Type":"application/json","Accept":"application/json","api-key":"BE0Rt7rrCi4vB37eJZ5ox4boqkiMBndmhuF8gblq"}
+
+--- SENDING REQUEST ---
+
+✅ RESPONSE RECEIVED (235ms)
+Status: 200
+Data: {
+  "statuscode": "ERR",
+  "message": "Invalid encryption string"
+}
+
+⚠️ API RETURNED ERROR STATUS: Invalid encryption string

@@ -1,0 +1,22 @@
+--- CONFIG CHECK ---
+Partner ID: 4358
+API Key: BE0Rt...
+AES Key Length (Env): 32
+
+--- PREPARING REQUEST (AES-128-ECB) ---
+Inner Payload: {"partner_id":"4358","apitxnid":"TEST_1771224075218","amount":100,"webhook":"https://payments.versaitechnology.com/api/unpay/callback"}
+Encrypted Hex (First 32): 9079958B13EF4D5F79CDE41FAD0C9D71...
+Final Request Body: {"body":"9079958B13EF4D5F79CDE41FAD0C9D716BA9DE7BA821B918FE3F70D3E645DDADCB845F16728BAE0A8451E6B03E1B3BDC747F66998680EB5715E0277FDED8F0FF9345CACB944F8FC996A9A14E64B3C3FA20C636AA325531C2AEE3CBF3C7811E16F6FBCFA07AC1E43C488010AC641AF4311AEA6804526C0A0E60ECBC26C1A1420E74E5E213C9027F7C4087C3FADD753460"}
+Target URL: https://unpay.in/tech/api/next/upi/request/qr
+Headers: {"Content-Type":"application/json","Accept":"application/json","api-key":"BE0Rt7rrCi4vB37eJZ5ox4boqkiMBndmhuF8gblq"}
+
+--- SENDING REQUEST ---
+
+✅ RESPONSE RECEIVED (245ms)
+Status: 200
+Data: {
+  "statuscode": "ERR",
+  "message": "Invalid encryption request or body value missing"
+}
+
+⚠️ API RETURNED ERROR STATUS: Invalid encryption request or body value missing

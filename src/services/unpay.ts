@@ -5,7 +5,7 @@ import { UNPAY_PARTNER_ID, UNPAY_API_KEY } from "../config/unpay"
 import unpayClient from "../config/unpay"
 
 // ==========================================
-// UNPAY DYNAMIC QR INTEGRATION (FINAL)
+// UNPAY DYNAMIC QR INTEGRATION (CORRECTED)
 // ==========================================
 
 // Create HTTPS Agent to force IPv4
@@ -14,40 +14,35 @@ const httpsAgent = new https.Agent({
   keepAlive: true,
 })
 
-// 1. Strict AES Key Buffer (Forced AES-128)
+// 1. Strict AES Key Buffer (AES-256)
 function getAesKeyBuffer(): Buffer {
   const keyRaw = process.env.UNPAY_AES_KEY || ""
 
-  if (!keyRaw) {
-    throw new Error("UNPAY_AES_KEY is missing")
+  // STRICT VALIDATION: Must be exactly 32 chars for AES-256
+  if (keyRaw.length !== 32) {
+    throw new Error(`UNPAY_AES_KEY Invalid Length: ${keyRaw.length}. Must be exactly 32 bytes.`)
   }
-
-  // FORCE TRUNCATION TO 16 CHARS (AES-128)
-  // UnPay often provides a 32-char string but expects AES-128 using the first 16 chars.
-  const keyPart = keyRaw.substring(0, 16)
 
   // Use UTF-8 parsing for the key
-  return Buffer.from(keyPart, "utf8")
+  return Buffer.from(keyRaw, "utf8")
 }
 
-// 2. Encrypt Function (AES-ECB, PKCS7, Base64 Output, NO IV)
+// 2. Encrypt Function (AES-256-ECB, PKCS7, Hex Output, NO IV)
 export function encryptAES(data: string): string {
   const key = getAesKeyBuffer()
-
-  // FORCE AES-128-ECB
   const algo = "aes-256-ecb"
 
-  if (key.length !== 16) {
-    throw new Error(`Invalid AES Key length for AES-256: ${key.length}. Must be 16 bytes.`)
-  }
-
-  console.log(`[UnPay Security] Using Encryption: ${algo}, Key Length: ${key.length} bytes`)
+  console.log(`[UnPay Security] Algo: ${algo}, Key Length: ${key.length} bytes`)
 
   const cipher = crypto.createCipheriv(algo, key, null)
   cipher.setAutoPadding(true)
-  let encrypted = cipher.update(data, "utf8", "base64")
-  encrypted += cipher.final("base64")
-  return encrypted
+
+  // Update: Input=utf8, Output=hex
+  let encrypted = cipher.update(data, "utf8", "hex")
+  encrypted += cipher.final("hex")
+
+  // Force Uppercase
+  return encrypted.toUpperCase()
 }
 
 export function decryptAES(enc: string): string {
@@ -56,7 +51,9 @@ export function decryptAES(enc: string): string {
 
   const decipher = crypto.createDecipheriv(algo, key, null)
   decipher.setAutoPadding(true)
-  let decrypted = decipher.update(enc, "base64", "utf8")
+
+  // Update: Input=hex, Output=utf8
+  let decrypted = decipher.update(enc, "hex", "utf8")
   decrypted += decipher.final("utf8")
   return decrypted
 }
@@ -70,7 +67,7 @@ export async function createUnpayDynamicQR(payload: {
   apitxnid: string
   webhook?: string
 }) {
-  console.log("[UnPay QR] Starting Strict Creation Process...")
+  console.log("[UnPay QR] Starting Creation Process...")
 
   if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) {
     throw new Error("UnPay credentials missing (Partner ID or API Key)")
@@ -87,44 +84,48 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Webhook URL is configured. Check UNPAY_WEBHOOK_URL in .env")
   }
 
+  // INNER PAYLOAD: Strict Types
   const innerPayload = {
-    partner_id: String(UNPAY_PARTNER_ID), // 👈 FORCE STRING as per direct user edit pattern
-    apitxnid: payload.apitxnid,
-    amount: amount,
-    webhook: webhook
+    partner_id: Number(UNPAY_PARTNER_ID), // Ensure Number
+    apitxnid: String(payload.apitxnid),
+    amount: amount,                       // Ensure Number
+    webhook: String(webhook)
   }
 
-  // Minified JSON logging for debug
-  // THIS IS THE ONLY STRINGIFY BEFORE ENCRYPTION
   const jsonPayload = JSON.stringify(innerPayload)
-  console.log("[UnPay QR] Inner Payload (Minified):", jsonPayload)
+  console.log("[UnPay QR] Inner Payload:", jsonPayload)
 
   let encryptedString: string
   try {
-    // Encrypt the RAW JSON STRING directly. No double wrapping.
     encryptedString = encryptAES(jsonPayload)
+
+    // VALIDATE HEX
+    if (!/^[0-9A-F]+$/.test(encryptedString)) {
+      throw new Error("Encryption output is NOT valid HTTP Hex")
+    }
+
     console.log(`[UnPay QR] Encryption Success. Output Length: ${encryptedString.length}`)
+    console.log(`[UnPay QR] Output Preview: ${encryptedString.substring(0, 20)}...`)
+
   } catch (err: any) {
     console.error("[UnPay QR] Encryption Failed:", err.message)
     throw err
   }
 
-  // CORRECT ENDPOINT: https://unpay.in/tech/api/next/upi/request/qr
+  // CORRECT ENDPOINT
   const envBaseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
   const finalUrl = `${envBaseUrl}/next/upi/request/qr`
 
+  // FINAL WRAPPER: { body: ... }
   const requestBody = {
-    encdata: encryptedString
+    body: encryptedString
   }
 
+  console.log("[UnPay QR] Final Request Body Wrapper Key: body")
+
   try {
-    console.log(`[UnPay QR] Sending Request to: ${finalUrl} (Forcing IPv4)`)
+    console.log(`[UnPay QR] Sending Request to: ${finalUrl}`)
 
-    // DEBUG: Check if API Key is actually loaded
-    console.log("[UnPay QR] UNPAY_API_KEY (first 5):", UNPAY_API_KEY ? UNPAY_API_KEY.substring(0, 5) : "undefined")
-
-    // Header Strategy: Send BOTH common formats to be safe
-    // Key MUST be plain text, matching process.env.UNPAY_API_KEY
     const headers = {
       "Content-Type": "application/json",
       "Accept": "application/json",
@@ -141,11 +142,9 @@ export async function createUnpayDynamicQR(payload: {
 
     if (resp.data && resp.data.statuscode === "TXN") {
       const qrString = resp.data.data?.qrString || resp.data.qrString
-
       if (!qrString) {
         console.warn("[UnPay QR] Success status (TXN) but qrString missing!")
       }
-
       return {
         qrString: qrString || null,
         raw: resp.data
@@ -175,26 +174,24 @@ export async function createUnpayTransaction(payload: {
   amount: number
   metadata?: Record<string, any>
 }) {
+  // Legacy function - kept for completeness
   if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) throw new Error("UnPay credentials missing")
 
   const amount = Number(payload.amount)
-  if (!Number.isInteger(amount) || amount <= 0) throw new Error("Invalid amount")
 
   const orderId = payload.metadata?.order_id || `ANTBBPS${Date.now()}`
   const webhookUrl = process.env.UNPAY_WEBHOOK_URL
-  if (!webhookUrl) throw new Error("UNPAY_WEBHOOK_URL missing")
 
   const body = {
-    partner_id: String(UNPAY_PARTNER_ID),  // 👈 FORCE STRING
+    partner_id: String(UNPAY_PARTNER_ID),
     apitxnid: orderId,
-    amount: Number(amount),               // keep amount numeric
+    amount: Number(amount),
     webhook: webhookUrl,
   };
 
-
   try {
     const resp = await unpayClient.post("/payin/order/create", body, {
-      httpsAgent: httpsAgent // Apply IPv4 Force here too
+      httpsAgent: httpsAgent
     })
     if (resp.data?.statuscode !== "TXN") {
       throw new Error(resp.data?.message || "Order failed")
@@ -206,7 +203,6 @@ export async function createUnpayTransaction(payload: {
       upi: resp.data.upi_string,
     }
   } catch (err: any) {
-    console.error("[UnPay] Order Error:", err.response?.data || err.message)
     throw new Error("UnPay order creation failed")
   }
 }

@@ -2,29 +2,26 @@
 import { encryptAES, decryptAES } from "./services/unpay";
 
 // Mock Config if not loaded
-if (!process.env.UNPAY_AES_KEY) {
-    console.log("Mocking UNPAY_AES_KEY for verification...");
+// MUST be exactly 32 bytes for verification if not in env
+if (!process.env.UNPAY_AES_KEY || process.env.UNPAY_AES_KEY.length !== 32) {
+    console.log("Mocking UNPAY_AES_KEY (32 bytes) for verification...");
     process.env.UNPAY_AES_KEY = "12345678901234567890123456789012"; // 32 chars
 }
 
-if (!process.env.UNPAY_IV) {
-    // Legacy support, though code uses key substring
-    process.env.UNPAY_IV = "1234567890123456";
-}
-
 async function verify() {
-    console.log("--- ENCRYPTION VERIFICATION ---");
+    console.log("--- ENCRYPTION VERIFICATION (STRICT) ---");
     const key = process.env.UNPAY_AES_KEY || "";
-    console.log(`Key Length: ${key.length} (Should be 32)`);
+    console.log(`Key Length: ${key.length} (Requirement: 32)`);
 
     // Test Payload
-    const payload = JSON.stringify({
-        partner_id: 4358,
+    const payloadObject = {
+        partner_id: 4358, // Number
         apitxnid: "test_order_123",
-        amount: 100,
+        amount: 100,      // Number
         webhook: "https://example.com"
-    });
-    console.log("Plain Payload:", payload);
+    };
+    const payload = JSON.stringify(payloadObject);
+    console.log("\nPlain Payload:", payload);
 
     try {
         // Encrypt
@@ -32,14 +29,11 @@ async function verify() {
         console.log("\nEncrypted Output:", encrypted);
 
         // Check format
-        const isHex = /^[0-9a-f]+$/i.test(encrypted);
-        const isBase64 = /^[a-zA-Z0-9+/]+={0,2}$/.test(encrypted) && !isHex; // Rough check
-
-        console.log(`\nIs Hex? ${isHex ? "YES ✅" : "NO ❌"}`);
-        console.log(`Is Base64? ${isBase64 ? "YES ❌" : "NO ✅"}`);
+        const isHex = /^[0-9A-F]+$/.test(encrypted); // Uppercase Hex
+        console.log(`\nIs Uppercase Hex? ${isHex ? "YES ✅" : "NO ❌"}`);
 
         if (!isHex) {
-            console.error("CRITICAL: Output is NOT Hex string!");
+            console.error("CRITICAL: Output is NOT valid Hex string!");
         }
 
         // Decrypt
@@ -47,8 +41,12 @@ async function verify() {
         console.log("\nDecrypted Output:", decrypted);
         console.log(`Match? ${decrypted === payload ? "YES ✅" : "NO ❌"}`);
 
+        // Final Wrapper Check
+        const finalBody = { body: encrypted };
+        console.log("\nFinal Request Body Structure:", JSON.stringify(finalBody));
+
     } catch (err: any) {
-        console.error("Encryption Failed:", err.message);
+        console.error("Encryption Logic Failed:", err.message);
     }
 }
 
