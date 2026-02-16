@@ -1,10 +1,11 @@
 import axios from "axios"
 import https from "https"
-import { UNPAY_PARTNER_ID, UNPAY_API_KEY } from "../config/unpay"
+import crypto from "crypto"
+import { UNPAY_PARTNER_ID, UNPAY_API_KEY, UNPAY_AES_KEY } from "../config/unpay"
 import unpayClient from "../config/unpay"
 
 // ==========================================
-// UNPAY DYNAMIC QR INTEGRATION (PLAIN JSON)
+// UNPAY DYNAMIC QR INTEGRATION (AES-128-ECB)
 // ==========================================
 
 // Create HTTPS Agent to force IPv4
@@ -12,6 +13,33 @@ const httpsAgent = new https.Agent({
   family: 4,
   keepAlive: true,
 })
+
+// ======================
+// ENCRYPTION HELPER
+// ======================
+
+function encryptAES128(text: string): string {
+  if (!UNPAY_AES_KEY || UNPAY_AES_KEY.length < 16) {
+    throw new Error(`Invalid AES Key length: ${UNPAY_AES_KEY?.length}. Must be at least 16 chars.`)
+  }
+
+  // 1. Key: First 16 bytes
+  const key = Buffer.from(UNPAY_AES_KEY.substring(0, 16), "utf8")
+
+  // 2. Algorithm: aes-128-ecb
+  const algorithm = "aes-128-ecb"
+
+  // 3. Create Cipher (Auto Padding = PKCS7)
+  const cipher = crypto.createCipheriv(algorithm, key, null)
+  cipher.setAutoPadding(true)
+
+  // 4. Encrypt
+  let encrypted = cipher.update(text, "utf8", "hex")
+  encrypted += cipher.final("hex")
+
+  // 5. Output: HEX UPPERCASE
+  return encrypted.toUpperCase()
+}
 
 // ======================
 // Create Dynamic QR (PRODUCTION)
@@ -22,7 +50,7 @@ export async function createUnpayDynamicQR(payload: {
   apitxnid: string
   webhook?: string
 }) {
-  console.log("[UnPay QR] Starting Creation Process (PLAIN JSON)...")
+  console.log("[UnPay QR] Starting Creation Process (AES-128-ECB)...")
 
   if (!UNPAY_PARTNER_ID || !UNPAY_API_KEY) {
     throw new Error("UnPay credentials missing (Partner ID or API Key)")
@@ -39,17 +67,36 @@ export async function createUnpayDynamicQR(payload: {
     throw new Error("Webhook URL is configured. Check UNPAY_WEBHOOK_URL in .env")
   }
 
-  // PLAIN PAYLOAD
-  const requestBody = {
+  // 1. Raw JSON Payload
+  // partner_id: Number (4358)
+  const innerPayload = {
     partner_id: Number(UNPAY_PARTNER_ID),
     apitxnid: String(payload.apitxnid),
     amount: amount,
     webhook: String(webhook)
   }
 
-  console.log("[UnPay QR] Request Body:", JSON.stringify(requestBody))
+  // 2. Stringify
+  const jsonString = JSON.stringify(innerPayload)
+  console.log("[UnPay QR] Raw JSON:", jsonString)
 
-  // CORRECT ENDPOINT
+  // 3. Encrypt
+  let encryptedHex: string
+  try {
+    encryptedHex = encryptAES128(jsonString)
+    console.log(`[UnPay QR] Encrypted HEX (Len: ${encryptedHex.length}):`, encryptedHex.substring(0, 50) + "...")
+  } catch (err: any) {
+    console.error("[UnPay QR] Encryption Failed:", err.message)
+    throw err
+  }
+
+  // 4. Wrap
+  const requestBody = {
+    body: encryptedHex
+  }
+  console.log("[UnPay QR] Final Request Body:", JSON.stringify(requestBody))
+
+  // 5. Send Request
   const envBaseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
   const finalUrl = `${envBaseUrl}/next/upi/request/qr`
 
