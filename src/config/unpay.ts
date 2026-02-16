@@ -14,7 +14,6 @@ if (!UNPAY_BASE_URL) {
 
 export const UNPAY_PARTNER_ID = process.env.UNPAY_PARTNER_ID || ""
 export const UNPAY_API_KEY = process.env.UNPAY_API_KEY || ""
-export const UNPAY_AES_KEY = process.env.UNPAY_AES_KEY || ""
 
 if (!UNPAY_PARTNER_ID) {
   throw new Error("UNPAY_PARTNER_ID is not configured")
@@ -22,10 +21,6 @@ if (!UNPAY_PARTNER_ID) {
 
 if (!UNPAY_API_KEY) {
   throw new Error("UNPAY_API_KEY is not configured")
-}
-
-if (!UNPAY_AES_KEY) {
-  throw new Error("UNPAY_AES_KEY is not configured")
 }
 
 console.log("✅ UNPAY URL AT RUNTIME =", UNPAY_BASE_URL)
