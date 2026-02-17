@@ -319,6 +319,17 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     console.log("RAZORPAY_KEY_ID IN USE:", process.env.RAZORPAY_KEY_ID);
     console.log("RAZORPAY_KEY_SECRET SET:", process.env.RAZORPAY_KEY_SECRET ? "YES" : "NO");
 
+    // AUTH DEBUG
+    const authUser = (req as any).user;
+    const authUserId = (req as any).userId;
+    const finalUserId = authUser?.id || authUserId;
+
+    console.log("[Create Order] Auth Debug:", {
+      authUser,
+      authUserId,
+      finalUserId
+    });
+
     const { amount, currency = "INR", description, customer_id, receipt, notes, provider } = req.body as CreateOrderRequest & { provider?: string }
 
     if (!amount || amount <= 0) {
@@ -360,10 +371,14 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     transactions.set(order.id, transaction);
 
-    // Persist to MongoDB (userId optional)
+    // Persist to MongoDB (userId optional but preferred)
     try {
+      if (!finalUserId) {
+        console.warn("[Create Order] Creating transaction WITHOUT userId (Anonymous/Guest?)")
+      }
+
       await Transaction.create({
-        userId: (req as any).user?.id,
+        userId: finalUserId,
         orderId: order.id,
         paymentId: "",
         amount,

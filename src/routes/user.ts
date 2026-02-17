@@ -29,12 +29,28 @@ router.get("/me", authMiddleware, async (req: AuthRequest, res: Response) => {
 // ------------------------
 router.get("/payments", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user!.id
+    // Debug Auth to fix empty dashboard
+    const userObj = (req as any).user
+    // Check both locations where middleware might put ID
+    const userId = userObj?.id || (req as any).userId
+
+    console.log("[User Payments] Debug:", {
+      reqUser: userObj,
+      reqUserId: (req as any).userId,
+      extractedId: userId
+    })
+
+    if (!userId) {
+      console.error("[User Payments] No User ID found in request")
+      return res.status(401).json({ success: false, message: "Unauthorized: No User ID" })
+    }
 
     // Fetch transactions for this user, sorted by newest first
     const transactions = await Transaction.find({ userId })
       .sort({ createdAt: -1 })
       .lean()
+
+    console.log(`[User Payments] Found ${transactions.length} transactions for user ${userId}`)
 
     res.json({
       success: true,
