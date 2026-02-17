@@ -111,6 +111,8 @@ app.use('/api/payments', paymentRoutes)
 app.use('/api/api-keys', apiKeyRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/admin', adminRoutes)
+import unpayRoutes from './routes/unpay'
+app.use('/api/unpay', unpayRoutes)
 import payoutRoutes from './routes/payouts'
 app.use('/api/payouts', payoutRoutes)
 import adminPayoutRoutes from './routes/admin_payouts'

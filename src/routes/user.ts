@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express"
 import User from "../models/User"
+import Transaction from "../models/Transaction"
 import authMiddleware from "../middleware/authMiddleware"
 
 type AuthRequest = Request & { user?: { id?: string } }
@@ -20,6 +21,38 @@ router.get("/me", authMiddleware, async (req: AuthRequest, res: Response) => {
     res.json({ success: true, user })
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ------------------------
+// GET MY PAYMENTS (Dashboard)
+// ------------------------
+router.get("/payments", authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id
+
+    // Fetch transactions for this user, sorted by newest first
+    const transactions = await Transaction.find({ userId })
+      .sort({ createdAt: -1 })
+      .lean()
+
+    res.json({
+      success: true,
+      data: transactions.map((t: any) => ({
+        id: t._id,
+        orderId: t.orderId,
+        paymentId: t.paymentId,
+        amount: t.amount,
+        currency: t.currency,
+        status: t.status, // pending, completed, failed
+        date: t.createdAt,
+        method: t.paymentMethod || "UPI",
+        description: t.description || "Order Payment"
+      }))
+    })
+  } catch (error: any) {
+    console.error("[User Payments] Error fetching history:", error)
+    res.status(500).json({ success: false, message: "Failed to fetch payments" })
   }
 })
 
