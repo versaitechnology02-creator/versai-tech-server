@@ -36,6 +36,53 @@ router.get("/test/unpay-ip", async (req: Request, res: Response) => {
   }
 })
 
+// ------------------------
+// GET MY TRANSACTIONS (Dashboard)
+// Matches frontend call: /api/payments/transactions
+// ------------------------
+router.get("/transactions", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    // Auth Debug
+    const userObj = (req as any).user
+    const userId = userObj?.id || (req as any).userId
+
+    console.log("[My Transactions] Debug:", {
+      reqUser: userObj,
+      extractedId: userId
+    })
+
+    if (!userId) {
+      console.error("[My Transactions] No User ID found in request")
+      return res.status(401).json({ success: false, message: "Unauthorized: No User ID" })
+    }
+
+    // Fetch transactions for this user, sorted by newest first
+    const txns = await Transaction.find({ userId })
+      .sort({ createdAt: -1 })
+      .lean()
+
+    console.log(`[My Transactions] Found ${txns.length} transactions for user ${userId}`)
+
+    res.json({
+      success: true,
+      data: txns.map((t: any) => ({
+        id: t._id,
+        orderId: t.orderId,
+        paymentId: t.paymentId,
+        amount: t.amount,
+        currency: t.currency,
+        status: t.status, // pending, completed, failed
+        date: t.createdAt,
+        method: t.paymentMethod || "UPI",
+        description: t.description || "Order Payment"
+      }))
+    })
+  } catch (error: any) {
+    console.error("[My Transactions] Error fetching history:", error)
+    res.status(500).json({ success: false, message: "Failed to fetch transactions" })
+  }
+})
+
 router.post("/generate-link", authMiddleware, isVerified, async (req: Request, res: Response) => {
   // REMOVED: This route creates frontend URLs which violate UPI intent requirements
   return res.status(410).json({
