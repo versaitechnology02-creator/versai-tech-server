@@ -27,6 +27,10 @@ function decryptAESECB(encryptedText: string, key: string): string {
 // ======================
 // WEBHOOK CONTROLLER
 // ======================
+router.get("/callback", (req: Request, res: Response) => {
+    res.status(200).json({ status: "success", message: "UnPay Webhook Endpoint Reachable" })
+})
+
 router.post("/callback", async (req: Request, res: Response) => {
     try {
         console.log("--------------- UNPAY WEBHOOK HIT ---------------")

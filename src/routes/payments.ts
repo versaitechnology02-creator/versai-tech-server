@@ -72,7 +72,8 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
         amount: t.amount,
         currency: t.currency,
         status: t.status, // pending, completed, failed
-        date: t.createdAt,
+        date: t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString(),
+        customer: t.customer?.name || "N/A", // Map to "Customer" column in dashboard
         method: t.paymentMethod || "UPI",
         description: t.description || "Order Payment"
       }))
