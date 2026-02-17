@@ -46,18 +46,15 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
     const userObj = (req as any).user
     const userId = userObj?.id || (req as any).userId
 
-    console.log("[My Transactions] Debug:", {
-      reqUser: userObj,
-      extractedId: userId
-    })
-
     if (!userId) {
       console.error("[My Transactions] No User ID found in request")
       return res.status(401).json({ success: false, message: "Unauthorized: No User ID" })
     }
 
     // Fetch transactions for this user, sorted by newest first
+    // POPULATE userId to get name/email if customer field is empty
     const txns = await Transaction.find({ userId })
+      .populate("userId", "name email")
       .sort({ createdAt: -1 })
       .lean()
 
@@ -65,18 +62,31 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
 
     res.json({
       success: true,
-      data: txns.map((t: any) => ({
-        id: t._id,
-        orderId: t.orderId,
-        paymentId: t.paymentId,
-        amount: t.amount,
-        currency: t.currency,
-        status: t.status, // pending, completed, failed
-        date: t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString(),
-        customer: t.customer?.name || "N/A", // Map to "Customer" column in dashboard
-        method: t.paymentMethod || "UPI",
-        description: t.description || "Order Payment"
-      }))
+      data: txns.map((t: any) => {
+        // Fallback logic for Customer Name
+        let customerName = "N/A"
+        if (t.customer && t.customer.name) {
+          customerName = t.customer.name
+        } else if (t.userId && t.userId.name) {
+          customerName = t.userId.name
+        }
+
+        // Fallback logic for Date
+        const dateStr = t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString()
+
+        return {
+          id: t._id,
+          orderId: t.orderId,
+          paymentId: t.paymentId || "-", // Dashboard shows '-' if empty
+          amount: t.amount,
+          currency: t.currency,
+          status: t.status, // pending, completed, failed
+          date: dateStr,
+          customer: customerName,
+          method: t.paymentMethod || "UPI",
+          description: t.description || "Order Payment"
+        }
+      })
     })
   } catch (error: any) {
     console.error("[My Transactions] Error fetching history:", error)

@@ -11,6 +11,10 @@ const router = express.Router()
 // ======================
 function decryptAESECB(encryptedText: string, key: string): string {
     try {
+        if (!key) {
+            console.error("[UnPay Decrypt Error]: Missing Key");
+            return "";
+        }
         // Standard AES-ECB Decryption
         const decipher = crypto.createDecipheriv("aes-256-ecb", Buffer.from(key), null)
         decipher.setAutoPadding(true)
@@ -19,7 +23,6 @@ function decryptAESECB(encryptedText: string, key: string): string {
         return decrypted
     } catch (err: any) {
         console.error(`[UnPay Decrypt Error]: ${err.message}`)
-        // Return empty string or handle gracefully - do NOT throw
         return ""
     }
 }
@@ -27,6 +30,7 @@ function decryptAESECB(encryptedText: string, key: string): string {
 // ======================
 // WEBHOOK CONTROLLER
 // ======================
+// Connectivity Check
 router.get("/callback", (req: Request, res: Response) => {
     res.status(200).json({ status: "success", message: "UnPay Webhook Endpoint Reachable" })
 })
@@ -34,105 +38,96 @@ router.get("/callback", (req: Request, res: Response) => {
 router.post("/callback", async (req: Request, res: Response) => {
     try {
         console.log("--------------- UNPAY WEBHOOK HIT ---------------")
-        console.log("Headers:", JSON.stringify(req.headers))
 
+        // 1. Decryption & Payload Extraction
         let payload: any = req.body
-        const rawBodyForAudit = JSON.stringify(payload) // Store original
+        const rawBodyForAudit = JSON.stringify(payload)
 
-        console.log("Raw Body Type:", typeof payload)
-
-        // 1. Decryption Logic
         // Check if body is encrypted structure: { body: "HEX..." }
         if (payload.body && typeof payload.body === "string") {
-            console.log("[UnPay Webhook] Detected encrypted body. Decrypting...")
-
             const decryptedString = decryptAESECB(payload.body, UNPAY_AES_KEY)
 
             if (!decryptedString) {
-                console.error("[UnPay Webhook] Decryption failed or returned empty.")
-                // LOG RAW BODY FOR DEBUG
-                console.error("Encrypted Payload was:", payload.body)
-                return res.status(200).json({ status: "success", message: "Decryption Failed - Logged" })
+                console.error("[UnPay Webhook] Decryption Failed. Raw:", payload.body)
+                return res.status(200).json({ status: "success", message: "Decryption Failed" })
             }
 
-            console.log("[UnPay Webhook] Decryption Success:", decryptedString)
             try {
                 payload = JSON.parse(decryptedString)
+                console.log("[UnPay Webhook] Decrypted Payload:", JSON.stringify(payload, null, 2))
             } catch (parseErr) {
-                console.error("[UnPay Webhook] JSON Parse Error of decrypted body")
+                console.error("[UnPay Webhook] JSON Parse Error")
                 return res.status(200).json({ status: "success", message: "JSON Parse Failed" })
             }
         } else {
-            console.log("[UnPay Webhook] Plaintext body detected (or unexpected format):", JSON.stringify(payload))
+            console.log("[UnPay Webhook] Plaintext Payload:", JSON.stringify(payload, null, 2))
         }
 
-        // 2. Extract Fields
-        // Map webhook fields to our internal fields
-        // API Spec: apitxnid = Our Unique Order ID
-        //           txnid = UnPay Payment ID (Bank Ref)
-        //           statuscode = TXN (Success), ERR (Failed), PND (Pending)
-        const orderId = payload.apitxnid
-        const paymentId = payload.txnid
+        // 2. Extract Valid Fields
+        const orderId = payload.apitxnid // Our internal Order ID
+        const paymentId = payload.txnid // UnPay Ref ID
         const statusFn = payload.statuscode
         const message = payload.message || ""
 
         if (!orderId) {
-            console.warn("[UnPay Webhook] Missing 'apitxnid' (orderId). Ignoring.")
-            return res.status(200).json({ status: "success", message: "Missing orderId" })
+            console.warn("[UnPay Webhook] Missing 'apitxnid'. Ignoring.")
+            return res.status(200).json({ status: "success", message: "Missing Order ID" })
         }
 
         // 3. Status Mapping
         let newStatus = "pending"
-        if (statusFn === "TXN") {
-            newStatus = "completed"
-        } else if (["ERR", "FAL", "REF"].includes(statusFn)) {
-            newStatus = "failed"
+        let updateData: any = {
+            paymentId: paymentId,
+            "notes.webhook_response": payload,
+            "notes.webhook_raw": rawBodyForAudit,
+            updatedAt: new Date()
         }
 
-        console.log(`[UnPay Webhook] Order: ${orderId}, Status: ${statusFn} -> ${newStatus}`)
+        if (statusFn === "TXN") {
+            newStatus = "completed"
+            // Ensure Payment ID is set
+            if (!paymentId) console.warn("[UnPay Webhook] Warning: Successful TXN missing 'txnid'")
+        } else if (["ERR", "FAL", "REF"].includes(statusFn)) {
+            newStatus = "failed"
+            // Store error message
+            updateData["notes.failure_message"] = message
+        }
 
         // 4. Atomic Update & Idempotency
-        // We strive to update ONLY if not already completed/failed final state
-        // AND store the raw webhook data in 'notes'
-
-        const updateResult = await Transaction.findOneAndUpdate(
+        // Update ONLY if finding orderId AND status is NOT already completed
+        // This prevents overwriting a success with a late failure or duplicate
+        const transaction = await Transaction.findOneAndUpdate(
             {
                 orderId: orderId,
-                status: { $ne: "completed" } // IDEMPOTENCY: Don't touch if already completed
+                status: { $ne: "completed" }
             },
             {
                 $set: {
                     status: newStatus,
-                    paymentId: paymentId,
-                    "notes.webhook_response": payload,
-                    "notes.webhook_raw": rawBodyForAudit,
-                    updatedAt: new Date()
+                    ...updateData
                 }
             },
             { new: true }
         )
 
-        if (updateResult) {
-            console.log(`[UnPay Webhook] DB Updated: ${orderId} is now ${updateResult.status}`)
+        if (transaction) {
+            console.log(`[UnPay Webhook] SUCCESS: Updated ${orderId} to ${newStatus}`)
         } else {
-            // Either not found OR already completed
-            // Let's check which one
+            // Check if it was because order was missing or already completed
             const existing = await Transaction.findOne({ orderId })
             if (!existing) {
-                console.warn(`[UnPay Webhook] Order ${orderId} NOT FOUND in DB.`)
+                console.warn(`[UnPay Webhook] IGNORED: Order ${orderId} not found in DB`)
             } else {
-                console.log(`[UnPay Webhook] Order ${orderId} was already ${existing.status}. No update performed.`)
+                console.log(`[UnPay Webhook] IGNORED: Order ${orderId} is already ${existing.status}`)
             }
         }
 
-        // 5. Final Response (ALWAYS 200)
-        return res.status(200).json({ status: "success", message: "Webhook processed" })
+        return res.status(200).json({ status: "success", message: "Processed" })
 
     } catch (error: any) {
-        console.error("[UnPay Webhook] CRITICAL ERROR (Caught):", error.message)
-        console.error(error.stack)
-        // CRITICAL REQUIREMENT: Always return 200
-        return res.status(200).json({ status: "success", message: "Internal Error" })
+        console.error("[UnPay Webhook] SYSTEM ERROR:", error.message)
+        // Always 200 to prevent retries
+        return res.status(200).json({ status: "success", message: "Internal Error Handled" })
     }
 })
 
