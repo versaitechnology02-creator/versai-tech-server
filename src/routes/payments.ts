@@ -301,7 +301,7 @@ router.get("/settlements", (req: Request, res: Response) => {
 // Create QR Code
 router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: Response) => {
   try {
-    const { amount, apitxnid, webhook } = req.body
+    const { amount, apitxnid } = req.body
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -317,10 +317,11 @@ router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: 
       })
     }
 
-    // Use provided webhook or default (✅ FIXED: Use correct production webhook URL)
-    const webhookUrl = webhook || process.env.UNPAY_WEBHOOK_URL
+    // 🚨 SECURITY: Never accept webhook from frontend
+    const webhookUrl = process.env.UNPAY_WEBHOOK_URL
+
     if (!webhookUrl) {
-      throw new Error("UNPAY_WEBHOOK_URL is not configured")
+      throw new Error("UNPAY_WEBHOOK_URL not configured in environment")
     }
 
     console.log("[Create QR] Creating QR with payload:", { amount, apitxnid, webhook: webhookUrl })
