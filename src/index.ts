@@ -173,4 +173,7 @@ app.use(
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`)
+  console.log(`🌍 SERVER_URL: ${process.env.SERVER_URL || 'Not Set'}`)
+  console.log(`🔗 UNPAY_WEBHOOK_URL: ${process.env.UNPAY_WEBHOOK_URL || 'Not Set'}`)
+  console.log(`🔗 SMEPAY_CALLBACK_URL: ${process.env.SMEPAY_CALLBACK_URL || 'Not Set'}`)
 })
