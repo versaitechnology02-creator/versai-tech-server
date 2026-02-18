@@ -65,9 +65,24 @@ router.get("/transactions", authMiddleware, isAdmin, async (req: Request, res: R
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * lim)
       .limit(lim)
+      .populate("userId", "name email phone") // POPULATE USER DETAILS
       .lean()
 
-    res.json({ success: true, data: { transactions, total, page: pageNum, limit: lim } })
+    // DATA NORMALIZATION: Ensure frontend receives robust data
+    const normalizedTransactions = transactions.map((tx: any) => ({
+      ...tx,
+      // Fallback: If customer.name is missing, use populated userId.name
+      customer: {
+        name: tx.customer?.name || tx.userId?.name || "N/A",
+        email: tx.customer?.email || tx.userId?.email || "N/A",
+        phone: tx.customer?.phone || tx.userId?.phone || "N/A",
+      },
+      // Ensure date is accessible as 'createdAt', 'date', and 'created_at' to support all frontend versions
+      date: tx.createdAt,
+      created_at: tx.createdAt,
+    }));
+
+    res.json({ success: true, data: { transactions: normalizedTransactions, total, page: pageNum, limit: lim } })
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message })
   }
@@ -110,7 +125,7 @@ router.get("/transactions-export", authMiddleware, isAdmin, async (req: Request,
 
     // Build CSV
     const header = ["orderId", "paymentId", "amount", "currency", "status", "customerName", "customerEmail", "createdAt"]
-    const rows = txns.map((t: any) => [t.orderId, t.paymentId, t.amount, t.currency, t.status, t.customer?.name || "", t.customer?.email || "", t.createdAt?.toISOString() || ""]) 
+    const rows = txns.map((t: any) => [t.orderId, t.paymentId, t.amount, t.currency, t.status, t.customer?.name || "", t.customer?.email || "", t.createdAt?.toISOString() || ""])
 
     const csv = [header.join(","), ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))].join("\n")
 
@@ -173,7 +188,7 @@ router.get("/overview", authMiddleware, isAdmin, async (req: Request, res: Respo
 router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    
+
     // Validate user ID format
     if (!id || id.length < 24) {
       return res.status(400).json({ success: false, message: "Invalid user ID format" })
@@ -191,7 +206,7 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
     }
 
     const updateFields: any = {}
-    
+
     // Handle isVerified update (admin verification)
     if (typeof verifyUser !== "undefined" && verifyUser !== null) {
       const isVerifiedValue = Boolean(verifyUser)
@@ -214,9 +229,9 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
 
     // Allow updates with isVerified or isAdmin
     if (Object.keys(updateFields).length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "isVerified or isAdmin field must be provided in the request body." 
+      return res.status(400).json({
+        success: false,
+        message: "isVerified or isAdmin field must be provided in the request body."
       })
     }
 
@@ -228,9 +243,9 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
 
     // If trying to verify (set isVerified=true), ensure user has completed email verification
     if (updateFields.isVerified === true && !existingUser.verified) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Cannot verify user. User must complete email verification first." 
+      return res.status(400).json({
+        success: false,
+        message: "Cannot verify user. User must complete email verification first."
       })
     }
 
@@ -258,8 +273,8 @@ router.patch("/users/:id", authMiddleware, isAdmin, async (req: Request, res: Re
     res.json({ success: true, data: user })
   } catch (error: any) {
     console.error("Error updating user:", error)
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: error.message || "Failed to update user",
       error: process.env.NODE_ENV === 'development' ? error.stack : undefined
     })

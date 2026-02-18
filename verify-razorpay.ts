@@ -40,7 +40,7 @@ async function testRazorpay() {
         "created_at": 1582628071
     });
 
-    const signature = crypto.createHmac('sha256', WEBHOOK_SECRET)
+    const signature = crypto.createHmac('sha256', WEBHOOK_SECRET as string)
         .update(payload)
         .digest('hex');
 

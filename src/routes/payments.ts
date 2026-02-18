@@ -40,6 +40,10 @@ router.get("/test/unpay-ip", async (req: Request, res: Response) => {
 // GET MY TRANSACTIONS (Dashboard)
 // Matches frontend call: /api/payments/transactions
 // ------------------------
+// Get Transaction History
+// GET MY TRANSACTIONS (Dashboard)
+// Matches frontend call: /api/payments/transactions
+// ------------------------
 router.get("/transactions", authMiddleware, async (req: Request, res: Response) => {
   try {
     // Auth Debug
@@ -47,50 +51,38 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
     const userId = userObj?.id || (req as any).userId
 
     if (!userId) {
-      console.error("[My Transactions] No User ID found in request")
       return res.status(401).json({ success: false, message: "Unauthorized: No User ID" })
     }
 
-    // Fetch transactions for this user, sorted by newest first
-    // POPULATE userId to get name/email if customer field is empty
-    const txns = await Transaction.find({ userId })
+    // Get transactions for the specific user
+    const transactions = await Transaction.find({ userId })
       .populate("userId", "name email")
-      .sort({ createdAt: -1 })
-      .lean()
+      .sort({ createdAt: -1 });
 
-    console.log(`[My Transactions] Found ${txns.length} transactions for user ${userId}`)
+    const mappedTransactions = transactions.map((t: any) => ({
+      ...t.toObject(),
+      id: t._id,
+      order_id: t.orderId,
+      payment_id: t.paymentId,
+      amount: t.amount,
+      currency: t.currency,
+      status: t.status,
+      // Fix: Ensure these top-level fields are populated for the frontend
+      customer_name: t.customer?.name || t.notes?.name || t.userId?.name || "",
+      customer_email: t.customer?.email || t.notes?.email || t.userId?.email || "",
+      created_at: t.createdAt ? t.createdAt.toISOString() : new Date().toISOString(), // Ensure ISO string
+      updated_at: t.updatedAt ? t.updatedAt.toISOString() : new Date().toISOString(),
+    }));
 
-    res.json({
-      success: true,
-      data: txns.map((t: any) => {
-        // Fallback logic for Customer Name
-        let customerName = "N/A"
-        if (t.customer && t.customer.name) {
-          customerName = t.customer.name
-        } else if (t.userId && t.userId.name) {
-          customerName = t.userId.name
-        }
+    console.log(`[My Transactions] Found ${transactions.length} transactions for user ${userId}`)
 
-        // Fallback logic for Date
-        const dateStr = t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString()
-
-        return {
-          id: t._id,
-          orderId: t.orderId,
-          paymentId: t.paymentId || "-", // Dashboard shows '-' if empty
-          amount: t.amount,
-          currency: t.currency,
-          status: t.status, // pending, completed, failed
-          date: dateStr,
-          customer: customerName,
-          method: t.paymentMethod || "UPI",
-          description: t.description || "Order Payment"
-        }
-      })
-    })
+    res.json({ success: true, data: mappedTransactions });
   } catch (error: any) {
-    console.error("[My Transactions] Error fetching history:", error)
-    res.status(500).json({ success: false, message: "Failed to fetch transactions" })
+    console.error("Error fetching transactions:", error)
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch transactions",
+    })
   }
 })
 
@@ -430,6 +422,24 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
 
     transactions.set(order.id, transaction);
 
+    // PERSISTENCE FIX: Fetch user details to ensure customer data is saved even if notes are empty
+    let customerName = notes?.name || "";
+    let customerEmail = notes?.email || "";
+    let customerPhone = notes?.phone || "";
+
+    if (finalUserId) {
+      try {
+        const userDetails = await User.findById(finalUserId);
+        if (userDetails) {
+          if (!customerName) customerName = userDetails.name || "";
+          if (!customerEmail) customerEmail = userDetails.email || "";
+          if (!customerPhone) customerPhone = (userDetails as any).phone || ""; // Cast if phone not on interface
+        }
+      } catch (err) {
+        console.warn("[Create Order] Failed to fetch user details for logging:", err);
+      }
+    }
+
     // Persist to MongoDB (userId optional but preferred)
     try {
       if (!finalUserId) {
@@ -444,9 +454,9 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
         currency,
         status: "pending",
         customer: {
-          name: notes?.name || "",
-          email: notes?.email || "",
-          phone: notes?.phone || "",
+          name: customerName,
+          email: customerEmail,
+          phone: customerPhone,
         },
         description: description || "",
         notes: notes || {},
