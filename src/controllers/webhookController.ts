@@ -6,6 +6,9 @@ import razorpay from "../config/razorpay"
 
 export const razorpayWebhookHandler = async (req: Request, res: Response) => {
     try {
+        console.log("⚡ RAZORPAY WEBHOOK HIT: STARTING ⚡");
+        console.log("Headers:", JSON.stringify(req.headers, null, 2));
+
         const signature = req.headers["x-razorpay-signature"] as string
         const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET
 
