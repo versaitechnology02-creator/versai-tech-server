@@ -820,5 +820,80 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     })
   }
 })
+// ------------------------
+// SMEPay Webhook Handler
+// Matches: /api/payments/webhook/smepay (via redirect from /api/smepay/callback)
+// ------------------------
+router.post("/webhook/smepay", async (req: Request, res: Response) => {
+  try {
+    console.log("🔥 SMEPAY WEBHOOK RECEIVED 🔥");
+    console.log("[SMEPay Webhook] Body:", JSON.stringify(req.body, null, 2));
+
+    // Extract necessary fields
+    // Based on logs, SMEPay likely sends: order_id, ref_id, payment_status, etc.
+    // The logs showed response: { "order_id": "THF...", "ref_id": "order_SHW...", "payment_status": "CREATED" }
+    // We expect the callback to have similar fields.
+
+    const { order_id, ref_id, status, payment_status, amount } = req.body;
+
+    // Determine our internal order ID
+    // ref_id is likely our internal 'orderId' ("order_SHW...")
+    // order_id is SMEPay's ID ("THF...")
+    const internalOrderId = ref_id || (req.body.metadata ? req.body.metadata.razorpay_order_id : null);
+
+    if (!internalOrderId) {
+      console.error("[SMEPay Webhook] Could not determine internal Order ID from payload");
+      return res.status(400).json({ success: false, message: "Missing ref_id or metadata" });
+    }
+
+    // Map SMEPay status to our internal status
+    // Expected statuses: "SUCCESS", "FAILED", "PENDING" (Need to verify)
+    let newStatus = "pending";
+    const statusUpper = (status || payment_status || "").toUpperCase();
+
+    if (statusUpper === "SUCCESS" || statusUpper === "COMPLETED" || statusUpper === "PAID") {
+      newStatus = "completed";
+    } else if (statusUpper === "FAILED") {
+      newStatus = "failed";
+    }
+
+    console.log(`[SMEPay Webhook] Processing update for Order: ${internalOrderId} -> Status: ${newStatus} (${statusUpper})`);
+
+    // Update Transaction
+    const transaction = await Transaction.findOneAndUpdate(
+      { orderId: internalOrderId },
+      {
+        $set: {
+          status: newStatus,
+          paymentId: order_id || "", // Use SMEPay ID as paymentId
+          updatedAt: new Date(),
+          "notes.smepay_webhook": req.body
+        }
+      },
+      { new: true }
+    );
+
+    if (transaction) {
+      console.log(`[SMEPay Webhook] ✅ Updated Transaction: ${transaction._id}`);
+
+      // If completed, notify valid SSE clients
+      if (newStatus === "completed") {
+        sseManager.broadcast(internalOrderId, {
+          type: "payment_success",
+          orderId: internalOrderId,
+          status: "completed"
+        });
+      }
+    } else {
+      console.error(`[SMEPay Webhook] ❌ Transaction not found: ${internalOrderId}`);
+    }
+
+    res.json({ success: true, message: "Webhook received" });
+
+  } catch (error: any) {
+    console.error("[SMEPay Webhook] Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 export default router
