@@ -40,10 +40,8 @@ router.get("/test/unpay-ip", async (req: Request, res: Response) => {
 // GET MY TRANSACTIONS (Dashboard)
 // Matches frontend call: /api/payments/transactions
 // ------------------------
-// Get Transaction History
-// GET MY TRANSACTIONS (Dashboard)
-// Matches frontend call: /api/payments/transactions
-// ------------------------
+console.log("🔥 PAYMENTS ROUTE V3 LOADED 🔥");
+
 router.get("/transactions", authMiddleware, async (req: Request, res: Response) => {
   try {
     // Auth Debug
@@ -72,11 +70,14 @@ router.get("/transactions", authMiddleware, async (req: Request, res: Response) 
       customer_email: t.customer?.email || t.notes?.email || t.userId?.email || "",
       created_at: t.createdAt ? t.createdAt.toISOString() : new Date().toISOString(), // Ensure ISO string
       updated_at: t.updatedAt ? t.updatedAt.toISOString() : new Date().toISOString(),
+      _debug_version: "v3"
     }));
 
     console.log(`[My Transactions] Found ${transactions.length} transactions for user ${userId}`)
 
     res.json({ success: true, data: mappedTransactions });
+
+
   } catch (error: any) {
     console.error("Error fetching transactions:", error)
     res.status(500).json({
