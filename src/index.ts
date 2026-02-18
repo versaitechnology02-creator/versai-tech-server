@@ -10,6 +10,7 @@ import authRoutes from './routes/auth'
 import apiKeyRoutes from './routes/payment-api'
 import userRoutes from './routes/user'
 import adminRoutes from './routes/admin'
+import { razorpayWebhookHandler } from './controllers/webhookController'
 
 const app = express()
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
@@ -72,6 +73,17 @@ app.options('*', cors(corsOptions))
 app.use(cors(corsOptions))
 
 /* =========================================================
+   WEBHOOKS (MUST BE BEFORE BODY PARSER)
+========================================================= */
+
+// Razorpay Webhook - Requires RAW body for signature verification
+app.post(
+  "/api/payments/webhook/razorpay",
+  express.raw({ type: "application/json" }),
+  razorpayWebhookHandler
+)
+
+/* =========================================================
    MIDDLEWARES
 ========================================================= */
 
@@ -121,6 +133,11 @@ app.use('/api/admin/payouts', adminPayoutRoutes)
 // Legacy SMEPay callback path used by provider: /api/smepay/callback
 // Rewrite to existing /api/payments/webhook/smepay handler without changing router structure
 app.post('/api/smepay/callback', (req: Request, res: Response, next: NextFunction) => {
+  // TODO: If SMEPay webhook logic is moved to webhookController, update this too.
+  // For now, redirecting to paymentRoutes which extracts body. 
+  // NOTE: If SMEPay needs raw body, this will fail because express.json() is now global above.
+  // Assuming SMEPay sends standard JSON and doesn't require raw body signature verification
+  // or that verif happens on parsed body.
   req.url = '/webhook/smepay'
     ; (paymentRoutes as any).handle(req, res, next)
 })
