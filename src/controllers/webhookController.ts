@@ -1,3 +1,4 @@
+
 import { Request, Response } from "express"
 import crypto from "crypto"
 import Transaction from "../models/Transaction"
@@ -16,6 +17,7 @@ export const razorpayWebhookHandler = async (req: Request, res: Response) => {
         if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
             console.warn("[Razorpay Webhook] Using RAZORPAY_KEY_SECRET as fallback. Please set RAZORPAY_WEBHOOK_SECRET.")
         }
+
         if (!signature) {
             console.error("[Razorpay Webhook] Missing signature header")
             return res.status(400).json({ status: "error", message: "Missing signature" })
@@ -34,23 +36,20 @@ export const razorpayWebhookHandler = async (req: Request, res: Response) => {
             return res.status(400).json({ status: "error", message: "Invalid signature" })
         }
 
-        // Parse specific events from the raw body if needed, or rely on req.body being passed as Buffer
-        // Express.raw() makes req.body a Buffer. We need to parse strictly what we need.
         const event = JSON.parse(req.body.toString())
 
         console.log("🔥🔥 WEBHOOK RECEIVED 🔥🔥")
         console.log("[Razorpay Webhook] Event:", event.event)
-        console.log("[Razorpay Webhook] Payload:", JSON.stringify(event.payload, null, 2))
+
+        // Deep Debug: Log Payload
+        // console.log("[Razorpay Webhook] Payload:", JSON.stringify(event.payload, null, 2));
 
         if (event.event === "payment.captured" || event.event === "order.paid") {
             const payment = event.payload.payment.entity
             const orderId = payment.order_id
             const paymentId = payment.id
 
-            // Update transaction status
-            // We look for orderId in our DB.
-            // NOTE: Razorpay sends 'order_id', our DB has 'orderId'
-            console.log(`[Razorpay Webhook] Updating order ${orderId} to success`)
+            console.log(`[Razorpay Webhook] Updating order ${orderId} to completed`)
 
             const transaction = await Transaction.findOneAndUpdate(
                 { orderId: orderId },
@@ -65,10 +64,12 @@ export const razorpayWebhookHandler = async (req: Request, res: Response) => {
                 { new: true }
             )
 
+            console.log("🔍 [Razorpay Webhook] DB Update Result:", transaction ? "SUCCESS" : "FAILED - No Match Found");
             if (transaction) {
-                console.log(`[Razorpay Webhook] Successfully updated transaction ${transaction._id}`)
+                console.log("✅ Updated Transaction:", JSON.stringify(transaction.toObject(), null, 2));
             } else {
-                console.warn(`[Razorpay Webhook] Transaction not found for orderId: ${orderId}`)
+                console.log("❌ CRITICAL: Could not find transaction with orderId:", orderId);
+                console.log("🤔 Hint: Check if DB has 'orderId' or 'order_id' field.");
             }
         }
 
