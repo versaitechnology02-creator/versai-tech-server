@@ -6,13 +6,16 @@ import razorpay from "../config/razorpay"
 export const razorpayWebhookHandler = async (req: Request, res: Response) => {
     try {
         const signature = req.headers["x-razorpay-signature"] as string
-        const secret = process.env.RAZORPAY_WEBHOOK_SECRET
+        const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET
 
         if (!secret) {
-            console.error("[Razorpay Webhook] RAZORPAY_WEBHOOK_SECRET is not configured")
+            console.error("[Razorpay Webhook] RAZORPAY_WEBHOOK_SECRET (or KEY_SECRET fallback) is not configured")
             return res.status(500).json({ status: "error", message: "Webhook secret missing" })
         }
 
+        if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+            console.warn("[Razorpay Webhook] Using RAZORPAY_KEY_SECRET as fallback. Please set RAZORPAY_WEBHOOK_SECRET.")
+        }
         if (!signature) {
             console.error("[Razorpay Webhook] Missing signature header")
             return res.status(400).json({ status: "error", message: "Missing signature" })
