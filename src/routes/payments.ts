@@ -509,20 +509,14 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
     }
 
     // Call UnPay only if selected or if no provider specified (backward compatibility)
-    // Determine if this environment should allow UnPay
+    // Enable UnPay if credentials are present (don't depend on NODE_ENV)
+    const hasUnpayCredentials = !!(process.env.UNPAY_PARTNER_ID && process.env.UNPAY_API_KEY && process.env.UNPAY_AES_KEY)
     const forceEnableUnpay = process.env.UNPAY_ENABLED === 'true'
-    const isProdEnv = process.env.NODE_ENV === 'production' || (process.env.SERVER_URL && process.env.SERVER_URL.includes('versaitechnology.com'))
-
-    // Safety: if CLIENT_URL explicitly contains localhost, treat as non-production (unless forced)
-    const clientUrlIsLocal = !!process.env.CLIENT_URL && process.env.CLIENT_URL.includes('localhost')
-
-    // Allow if forced OR (isProd AND not local client)
-    const allowUnPay = forceEnableUnpay || (isProdEnv && !clientUrlIsLocal)
+    const allowUnPay = hasUnpayCredentials || forceEnableUnpay
 
     console.log("[PAYMENT GATEWAY MODE] [create-order]", {
       provider: selectedProvider || "auto",
-      isProdEnv,
-      clientUrlIsLocal,
+      hasUnpayCredentials,
       forceEnableUnpay,
       allowUnPay,
     })
@@ -577,7 +571,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       }
     } else if (selectedProvider === "unpay" && !allowUnPay) {
       // If UnPay is specifically selected but we're not allowed, show error
-      const msg = "UnPay is disabled in this environment (UNPAY_ENABLED implies false)"
+      const msg = "UnPay credentials are missing — set UNPAY_PARTNER_ID, UNPAY_API_KEY, UNPAY_AES_KEY in .env"
         ; (transaction as any).unpay_error = msg;
       ; (transaction as any).unpay_critical_error = msg;
       return res.status(400).json({

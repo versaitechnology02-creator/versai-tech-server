@@ -1,5 +1,31 @@
 import dotenv from 'dotenv'
-dotenv.config()
+import path from 'path'
+import fs from 'fs'
+
+// Robust .env loading - check multiple locations
+const possiblePaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(__dirname, '.env'),
+  path.resolve(__dirname, '..', '.env'),
+  path.resolve(__dirname, '..', '..', '.env')
+]
+
+let loaded = false
+for (const p of possiblePaths) {
+  if (fs.existsSync(p)) {
+    console.log(`🔍 Found .env at: ${p}`)
+    const result = dotenv.config({ path: p })
+    if (!result.error) {
+      console.log('✅ .env file loaded successfully')
+      loaded = true
+      break
+    }
+  }
+}
+
+if (!loaded) {
+  console.warn('⚠️ No .env file found or loaded in any expected location')
+}
 
 import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
