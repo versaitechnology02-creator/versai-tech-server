@@ -58,12 +58,175 @@ function decryptAES256ECB(encryptedText: string, key: string): string {
 }
 
 // ======================
-// WEBHOOK CONTROLLER
+// DIAGNOSTIC ENDPOINTS
 // ======================
 
-// Connectivity Check (GET)
+/**
+ * GET /api/unpay/callback
+ * Connectivity check — UnPay pings this to verify the webhook URL is alive.
+ * Also logs the caller's IP so you can whitelist it in your firewall.
+ */
 router.get("/callback", (req: Request, res: Response) => {
-    res.status(200).json({ status: "success", message: "UnPay Webhook Endpoint Reachable" })
+    const callerIp = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress
+    console.log(`[UnPay Webhook] GET ping from IP: ${callerIp}`)
+    res.status(200).json({
+        status: "success",
+        message: "UnPay Webhook Endpoint Reachable",
+        server_time: new Date().toISOString(),
+        caller_ip: callerIp,
+    })
+})
+
+/**
+ * POST /api/unpay/simulate
+ * Manually simulate a UnPay webhook payload — useful for testing WITHOUT
+ * needing UnPay to actually call the endpoint.
+ *
+ * Body (plain JSON, no encryption): { apitxnid, txnid, utr, statuscode, status, amount }
+ * Example: { "apitxnid": "order_ABC", "statuscode": "TXN", "txnid": "UPI123", "utr": "4698" }
+ */
+router.post("/simulate", async (req: Request, res: Response) => {
+    console.log("[UnPay Simulate] Simulating webhook with payload:", JSON.stringify(req.body, null, 2))
+    // Directly inject into webhook handler logic by reusing the router
+    req.url = "/callback"
+    // Call internal webhook processing by forwarding through the same logic
+    // Simulated payloads are always plaintext JSON (skip encryption)
+    const { apitxnid, txnid, utr, statuscode, status, amount, message } = req.body
+
+    if (!apitxnid) {
+        return res.status(400).json({ success: false, message: "apitxnid is required" })
+    }
+
+    const orderId = apitxnid
+    const paymentId = txnid || ""
+    const statusCode = statuscode || "TXN"
+    const newStatus = statusCode === "TXN" ? "completed" : "failed"
+
+    const updateData: any = {
+        updatedAt: new Date(),
+        "notes.simulated_webhook": req.body,
+        "notes.completed_via": "manual_simulate",
+    }
+    if (newStatus === "completed") {
+        updateData.paymentId = paymentId || orderId
+        updateData["notes.utr"] = utr || ""
+    }
+
+    try {
+        const updated = await Transaction.findOneAndUpdate(
+            { orderId, status: { $ne: "completed" } },
+            { $set: { status: newStatus, ...updateData } },
+            { new: true }
+        )
+
+        if (updated) {
+            console.log(`[UnPay Simulate] ✅ Updated ${orderId} → ${newStatus}`)
+            if (newStatus === "completed") {
+                sseManager.broadcast(orderId, {
+                    type: "payment_success",
+                    orderId,
+                    status: "completed",
+                    paymentId,
+                    utr,
+                    source: "simulate",
+                })
+            }
+            return res.json({ success: true, message: `Transaction ${orderId} → ${newStatus}`, transaction: updated })
+        } else {
+            const existing = await Transaction.findOne({ orderId })
+            if (!existing) {
+                return res.status(404).json({ success: false, message: `Order ${orderId} not found in DB` })
+            }
+            return res.json({ success: false, message: `Order ${orderId} already has status=${existing.status}. Not updated.` })
+        }
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: err.message })
+    }
+})
+
+/**
+ * POST /api/unpay/sync/:orderId
+ * Force manual status sync for a specific order.
+ * Calls UnPay's API directly and updates DB.
+ */
+router.post("/sync/:orderId", async (req: Request, res: Response) => {
+    const { orderId } = req.params
+    console.log(`[UnPay Manual Sync] Triggered for orderId: ${orderId}`)
+
+    const partnerId = process.env.UNPAY_PARTNER_ID
+    const apiKey = process.env.UNPAY_API_KEY
+    const aesKey = process.env.UNPAY_AES_KEY
+    const iv = process.env.UNPAY_IV
+    const baseUrl = (process.env.UNPAY_BASE_URL || "https://unpay.in/tech/api").replace(/\/$/, "")
+
+    if (!partnerId || !apiKey || !aesKey || !iv) {
+        return res.status(500).json({ success: false, message: "UnPay env vars not configured" })
+    }
+
+    try {
+        // Encrypt the status check payload
+        const innerPayload = { partner_id: String(partnerId), apitxnid: orderId }
+        const cipher = require("crypto").createCipheriv(
+            "aes-256-cbc",
+            Buffer.from(aesKey, "utf8"),
+            Buffer.from(iv, "utf8")
+        )
+        cipher.setAutoPadding(true)
+        let encrypted = cipher.update(JSON.stringify(innerPayload), "utf8", "hex")
+        encrypted += cipher.final("hex")
+        const encryptedHex = encrypted.toUpperCase()
+
+        const axios = require("axios")
+        const https = require("https")
+        const httpsAgent = new https.Agent({ family: 4, keepAlive: true })
+
+        // Try both endpoints
+        const endpoints = [
+            `${baseUrl}/payin/order/status`,
+            `${baseUrl}/payout/order/status`,
+        ]
+
+        let unpayResult: any = null
+        let usedEndpoint = ""
+
+        for (const endpoint of endpoints) {
+            try {
+                const resp = await axios.post(endpoint, { body: encryptedHex }, {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "api-key": apiKey.trim(),
+                    },
+                    timeout: 10000,
+                    httpsAgent,
+                })
+                unpayResult = resp.data
+                usedEndpoint = endpoint
+                console.log(`[UnPay Manual Sync] ${endpoint} → ${JSON.stringify(unpayResult)}`)
+
+                if (unpayResult?.message !== "Permission Not Allowed") break
+            } catch (e: any) {
+                console.warn(`[UnPay Manual Sync] ${endpoint} failed:`, e.message)
+            }
+        }
+
+        // Also fetch current DB state
+        const existing = await Transaction.findOne({ orderId })
+
+        return res.json({
+            success: true,
+            orderId,
+            unpay_api_result: unpayResult,
+            endpoint_used: usedEndpoint,
+            current_db_status: existing?.status || "not found",
+            message: unpayResult?.message === "Permission Not Allowed"
+                ? "⚠️ UnPay API returned Permission Not Allowed — this account may not have access to the order status API. Rely on webhooks."
+                : "Status check complete. Update DB manually or rely on webhook.",
+        })
+    } catch (err: any) {
+        console.error("[UnPay Manual Sync] Error:", err.message)
+        return res.status(500).json({ success: false, message: err.message })
+    }
 })
 
 // Main Webhook Handler (POST)
