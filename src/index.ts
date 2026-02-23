@@ -37,6 +37,7 @@ import apiKeyRoutes from './routes/payment-api'
 import userRoutes from './routes/user'
 import adminRoutes from './routes/admin'
 import { razorpayWebhookHandler } from './controllers/webhookController'
+import { startPaymentPolling } from './utils/paymentPoller'
 
 const app = express()
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
@@ -126,7 +127,11 @@ if (!mongoUri) {
 }
 
 connectDB(mongoUri)
-  .then(() => console.log('MongoDB connected'))
+  .then(() => {
+    console.log('MongoDB connected')
+    // Start background payment status polling (safety net for missed webhooks)
+    startPaymentPolling()
+  })
   .catch((err) => {
     console.error('MongoDB connection failed:', err)
     process.exit(1)
