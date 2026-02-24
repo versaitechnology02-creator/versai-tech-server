@@ -38,6 +38,7 @@ import userRoutes from './routes/user'
 import adminRoutes from './routes/admin'
 import { razorpayWebhookHandler } from './controllers/webhookController'
 import { startPaymentPolling } from './utils/paymentPoller'
+import unpayRoutes from './routes/unpay'
 
 const app = express()
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
@@ -110,6 +111,18 @@ app.post(
   razorpayWebhookHandler
 )
 
+// UnPay Webhook - Registered URL in UnPay dashboard: /api/payments/webhook/unpay
+// This is the CANONICAL webhook URL. The old /api/unpay/callback is kept as alias.
+app.post(
+  "/api/payments/webhook/unpay",
+  express.json(),
+  (req, res, next) => {
+    console.log("[UnPay Webhook] Hit via /api/payments/webhook/unpay")
+    req.url = '/callback'
+      ; (unpayRoutes as any).handle(req, res, next)
+  }
+)
+
 /* =========================================================
    MIDDLEWARES
 ========================================================= */
@@ -154,7 +167,7 @@ app.use('/api/payments', paymentRoutes)
 app.use('/api/api-keys', apiKeyRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/admin', adminRoutes)
-import unpayRoutes from './routes/unpay'
+// /api/unpay/* - keeps old paths working (alias: /api/unpay/callback)
 app.use('/api/unpay', unpayRoutes)
 import payoutRoutes from './routes/payouts'
 app.use('/api/payouts', payoutRoutes)
