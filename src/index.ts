@@ -112,16 +112,19 @@ app.post(
 )
 
 // UnPay Webhook - Registered URL in UnPay dashboard: /api/payments/webhook/unpay
-// This is the CANONICAL webhook URL. The old /api/unpay/callback is kept as alias.
-app.post(
-  "/api/payments/webhook/unpay",
-  express.json(),
-  (req, res, next) => {
-    console.log("[UnPay Webhook] Hit via /api/payments/webhook/unpay")
-    req.url = '/callback'
-      ; (unpayRoutes as any).handle(req, res, next)
-  }
-)
+// ⚠️  CRITICAL: UnPay sends REAL payment callbacks as GET with query params!
+//     (e.g. ?statuscode=TXN&apitxnid=...&txnid=...&utr=...)
+// Both GET and POST must be handled.
+app.get("/api/payments/webhook/unpay", (req, res, next) => {
+  console.log("[UnPay Webhook] GET Hit via /api/payments/webhook/unpay")
+  req.url = '/callback'
+    ; (unpayRoutes as any).handle(req, res, next)
+})
+app.post("/api/payments/webhook/unpay", express.json(), (req, res, next) => {
+  console.log("[UnPay Webhook] POST Hit via /api/payments/webhook/unpay")
+  req.url = '/callback'
+    ; (unpayRoutes as any).handle(req, res, next)
+})
 
 /* =========================================================
    MIDDLEWARES

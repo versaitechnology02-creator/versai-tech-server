@@ -62,19 +62,94 @@ function decryptAES256ECB(encryptedText: string, key: string): string {
 // ======================
 
 /**
- * GET /api/unpay/callback
- * Connectivity check — UnPay pings this to verify the webhook URL is alive.
- * Also logs the caller's IP so you can whitelist it in your firewall.
+ * GET /api/unpay/callback  (also served at /api/payments/webhook/unpay via index.ts alias)
+ *
+ * ⚠️  CRITICAL: UnPay sends payment callbacks as GET requests with QUERY PARAMETERS,
+ *     NOT as POST with JSON body.
+ *
+ *  Example real callback:
+ *  GET /api/payments/webhook/unpay
+ *    ?statuscode=TXN&status=SUCCESS&amount=100
+ *    &apitxnid=order_XYZ&txnid=order_XYZ&utr=605571078458&message=success
+ *
+ *  If there is NO apitxnid in the query, treat as a connectivity ping.
  */
-router.get("/callback", (req: Request, res: Response) => {
-    const callerIp = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress
-    console.log(`[UnPay Webhook] GET ping from IP: ${callerIp}`)
-    res.status(200).json({
-        status: "success",
-        message: "UnPay Webhook Endpoint Reachable",
-        server_time: new Date().toISOString(),
-        caller_ip: callerIp,
-    })
+router.get("/callback", async (req: Request, res: Response) => {
+    const { apitxnid, txnid, statuscode, utr, amount, message } = req.query as Record<string, string>
+
+    // ── Connectivity ping (no apitxnid present) ──────────────────────────────
+    if (!apitxnid) {
+        const callerIp = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress
+        console.log(`[UnPay Webhook] GET ping from IP: ${callerIp}`)
+        return res.status(200).json({
+            status: "success",
+            message: "UnPay Webhook Endpoint Reachable",
+            server_time: new Date().toISOString(),
+            caller_ip: callerIp,
+        })
+    }
+
+    // ── Real payment callback ─────────────────────────────────────────────────
+    try {
+        console.log("============ UNPAY WEBHOOK HIT (GET) ============")
+        console.log("[UnPay Webhook GET] Query params:", JSON.stringify(req.query, null, 2))
+        console.log(`[UnPay Webhook GET] Processing: orderId=${apitxnid} | statuscode=${statuscode} | txnid=${txnid} | utr=${utr}`)
+
+        let newStatus = "pending"
+        const updateData: any = {
+            updatedAt: new Date(),
+            "notes.webhook_response": req.query,
+            "notes.webhook_method": "GET",
+        }
+
+        if (statuscode === "TXN") {
+            newStatus = "completed"
+            updateData.paymentId = txnid || apitxnid
+            updateData["notes.utr"] = utr || ""
+            if (!txnid) console.warn("[UnPay Webhook GET] ⚠️ Success but txnid missing")
+        } else if (["ERR", "FAL", "REF", "FAIL", "TXF"].includes(statuscode)) {
+            newStatus = "failed"
+            updateData["notes.failure_message"] = message || ""
+            updateData["notes.failure_code"] = statuscode
+        } else {
+            console.warn(`[UnPay Webhook GET] Unknown statuscode: ${statuscode}. Keeping status=pending.`)
+        }
+
+        // Atomic idempotent update — won't overwrite already-completed transactions
+        const transaction = await Transaction.findOneAndUpdate(
+            { orderId: apitxnid, status: { $ne: "completed" } },
+            { $set: { status: newStatus, ...updateData } },
+            { new: true }
+        )
+
+        if (transaction) {
+            console.log(`[UnPay Webhook GET] ✅ DB Updated: ${apitxnid} → status=${newStatus}`)
+            if (newStatus === "completed") {
+                sseManager.broadcast(apitxnid, {
+                    type: "payment_success",
+                    orderId: apitxnid,
+                    status: "completed",
+                    paymentId: txnid || apitxnid,
+                    utr: utr || "",
+                    amount,
+                    source: "unpay_get_webhook",
+                })
+                console.log(`[UnPay Webhook GET] 📡 SSE broadcast sent for orderId=${apitxnid}`)
+            }
+        } else {
+            const existing = await Transaction.findOne({ orderId: apitxnid })
+            if (!existing) {
+                console.warn(`[UnPay Webhook GET] ⚠️ Order ${apitxnid} NOT FOUND in DB`)
+            } else {
+                console.log(`[UnPay Webhook GET] ℹ️ Order ${apitxnid} already status=${existing.status}. Skipping.`)
+            }
+        }
+    } catch (error: any) {
+        console.error("[UnPay Webhook GET] 🔥 SYSTEM ERROR:", error.message)
+    }
+
+    // UnPay expects a simple 200 OK for GET callbacks
+    return res.status(200).send("OK")
 })
 
 /**
