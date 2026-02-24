@@ -14,7 +14,7 @@ let loaded = false
 for (const p of possiblePaths) {
   if (fs.existsSync(p)) {
     console.log(`🔍 Found .env at: ${p}`)
-    const result = dotenv.config({ path: p })
+    const result = dotenv.config({ path: p, override: true })  // override: true ensures .env always wins over PM2 cached env
     if (!result.error) {
       console.log('✅ .env file loaded successfully')
       loaded = true
