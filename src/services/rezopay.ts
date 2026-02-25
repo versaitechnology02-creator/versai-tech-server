@@ -1,117 +1,145 @@
 /**
- * RezoPay Payout Service
- * ======================
- * Handles all outbound calls to the RezoPay Payout API (pg.sdmrc.in).
+ * RezoPay (RudraxPay) Payout Service
+ * ====================================
+ * Handles all outbound calls to the RezoPay/RudraxPay Payout API (pg.sdmrc.in).
  *
- * API Base  : https://pg.sdmrc.in/api/v2
- * Auth      : x-api-key header (no body encryption required for RezoPay payout)
- * Endpoints :
- *   POST /bank/payout         — Initiate payout
- *   POST /bank/check-status   — Check payout status
- *   POST /check-balance       — Check payout wallet balance
+ * ⚠️  AUTHENTICATION (from official API docs):
+ *   Headers: saltkey + secretkey  (NOT x-api-key)
  *
- * Design decisions:
- * - All env vars validated at call time (not at module load) so server starts
- *   even if RezoPay is not yet configured, and fails loudly only when called.
- * - Timeout: 20s (bank APIs can be slow; 15s was too tight in testing)
- * - Error messages are SANITIZED before bubbling up — no raw gateway errors
- *   are exposed to the client.
+ * Endpoints used:
+ *   POST https://pg.sdmrc.in/api/v2/bank/payout         — Initiate payout
+ *   POST https://pg.sdmrc.in/api/v2/bank/check-status   — Check payout status
+ *   POST https://pg.sdmrc.in/api/check-balance           — Balance check (no /v2)
+ *
+ * Design:
+ * - Env vars validated at call time — server starts even if keys not set
+ * - 20s timeout on payout initiation (bank APIs are slow)
+ * - All gateway errors are sanitized before surfacing to client
+ * - IPv4 forced to avoid IPv6 routing issues on Linux cloud servers
  */
 
 import axios, { AxiosError } from "axios"
 import https from "https"
 
-// Force IPv4 to avoid IPv6 routing issues on cloud infra
+// Force IPv4 — avoids IPv6 routing issues common on VPS/cloud
 const httpsAgent = new https.Agent({ family: 4, keepAlive: true })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface InitiatePayoutPayload {
-    orderid: string       // Our unique idempotency key
-    fullName: string      // Beneficiary full name
-    amount: number        // Amount in INR (numeric, not string)
-    mobile: string        // 10-digit mobile
-    accountNumber: string // Bank account number
-    ifsc: string          // IFSC code
-    bank: string          // Bank name
+    orderid: string        // Unique idempotency key (our POUT... key)
+    fullName: string       // Beneficiary full name
+    amount: number         // Amount in INR
+    mobile: string         // 10-digit mobile number
+    accountNumber: string  // Bank account number
+    ifsc: string           // IFSC code (uppercase)
+    bank: string           // Bank name
 }
 
 export interface RezopayInitiateResponse {
-    status: string        // "pending" | "failed"
+    status: string     // "pending" | "failed"
     message: string
 }
 
 export interface RezopayStatusResponse {
-    status: string        // "success" | "failed" | (outer wrapper)
+    status: string     // outer: "success" | "failed"
     message: string
     data?: {
-        status: string      // "success" | "failed" | "pending"
+        status: string     // inner: "success" | "failed" | "pending"
         orderid: string
         utr: string
     }
 }
 
 export interface RezopayBalanceResponse {
-    status: string        // "success" | "failed"
+    status: string     // "success" | "failed"
     balance?: number
     message?: string
 }
 
-// ─── Internal Helpers ─────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 /**
- * Validate required RezoPay env vars.
- * Called at the start of every service function — fail loudly, fail early.
+ * Read and validate RezoPay credentials from env.
+ * Called at the top of every service function — fails loudly, fails early.
+ *
+ * According to API docs (pg.sdmrc.in):
+ *   Header: saltkey    = REZOPAY_SALT_KEY
+ *   Header: secretkey  = REZOPAY_SECRET_KEY
  */
-function getRezoPayConfig(): { apiKey: string; baseUrl: string } {
-    const apiKey = process.env.REZOPAY_API_KEY
+function getRezoPayConfig(): {
+    saltKey: string
+    secretKey: string
+    baseUrl: string
+} {
+    const saltKey = process.env.REZOPAY_SALT_KEY
+    const secretKey = process.env.REZOPAY_SECRET_KEY
     const baseUrl = (
         process.env.REZOPAY_BASE_URL || "https://pg.sdmrc.in/api"
     ).replace(/\/$/, "")
 
-    if (!apiKey) {
+    if (!saltKey) {
         throw new Error(
-            "REZOPAY_API_KEY is not configured in environment variables. " +
-            "Please add it to your .env file."
+            "REZOPAY_SALT_KEY is not set in .env — add it from your RudraxPay merchant panel"
+        )
+    }
+    if (!secretKey) {
+        throw new Error(
+            "REZOPAY_SECRET_KEY is not set in .env — add it from your RudraxPay merchant panel"
         )
     }
 
-    return { apiKey, baseUrl }
+    return { saltKey, secretKey, baseUrl }
 }
 
 /**
- * Sanitize error messages before surfacing them.
- * We never leak raw Axios error bodies or stack traces to callers.
+ * Build the standard auth headers required by pg.sdmrc.in API.
+ * Per official docs: saltkey + secretkey in headers.
  */
+function buildHeaders(saltKey: string, secretKey: string) {
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "saltkey": saltKey,
+        "secretkey": secretKey,
+    }
+}
+
+// ─── Error Handling ───────────────────────────────────────────────────────────
+
 function sanitizeGatewayError(error: unknown, context: string): Error {
     if (error instanceof AxiosError) {
         const status = error.response?.status
         const data = error.response?.data
 
-        // Log full detail server-side
-        console.error(`[RezoPay ${context}] HTTP ${status}:`, JSON.stringify(data))
+        // Full details server-side only
+        console.error(
+            `[RezoPay ${context}] HTTP ${status ?? "no-response"}:`,
+            JSON.stringify(data ?? error.message)
+        )
 
-        // Return sanitized message to caller
         if (status === 401 || status === 403) {
-            return new Error("RezoPay authentication failed — check REZOPAY_API_KEY")
+            return new Error(
+                "RezoPay authentication failed — check REZOPAY_SALT_KEY and REZOPAY_SECRET_KEY in .env"
+            )
         }
         if (status === 429) {
             return new Error("RezoPay rate limit exceeded — please retry after a short delay")
         }
         if (status && status >= 500) {
-            return new Error("RezoPay gateway is temporarily unavailable — please retry")
+            return new Error("RezoPay gateway unavailable — please retry")
         }
         if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
             return new Error("RezoPay request timed out — gateway may be slow, please retry")
+        }
+        if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
+            return new Error("Cannot reach RezoPay gateway — check REZOPAY_BASE_URL in .env")
         }
 
         return new Error(data?.message || "RezoPay gateway error — please retry")
     }
 
-    if (error instanceof Error) {
-        // Re-throw our own validation errors as-is
-        return error
-    }
+    if (error instanceof Error) return error
 
     return new Error("Unknown RezoPay service error")
 }
@@ -121,19 +149,19 @@ function sanitizeGatewayError(error: unknown, context: string): Error {
 /**
  * Initiate a bank payout via RezoPay.
  *
- * RezoPay REQUIRES your server IP to be whitelisted.
- * If you get "IP not allowed" errors, contact RezoPay support.
+ * ⚠️  Your server IP MUST be whitelisted by RezoPay support first.
+ *     If you get "IP not allowed" or auth errors, contact RezoPay support.
  *
+ * Endpoint: POST https://pg.sdmrc.in/api/v2/bank/payout
  * Returns: { status: "pending" | "failed", message: string }
  */
 export async function initiateRezoPayout(
     payload: InitiatePayoutPayload
 ): Promise<RezopayInitiateResponse> {
-    const { apiKey, baseUrl } = getRezoPayConfig()
+    const { saltKey, secretKey, baseUrl } = getRezoPayConfig()
 
     const endpoint = `${baseUrl}/v2/bank/payout`
 
-    // RezoPay expects amount as a number (not string)
     const body = {
         orderid: payload.orderid,
         fullName: payload.fullName.trim(),
@@ -144,21 +172,24 @@ export async function initiateRezoPayout(
         amount: Number(payload.amount),
     }
 
-    console.log(`[RezoPay Payout] Initiating payout → orderid=${payload.orderid} amount=${payload.amount}`)
+    console.log(
+        `[RezoPay Payout] Initiating → orderid=${payload.orderid} amount=₹${payload.amount} endpoint=${endpoint}`
+    )
 
     try {
-        const response = await axios.post<RezopayInitiateResponse>(endpoint, body, {
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "x-api-key": apiKey,
-            },
-            timeout: 20000, // 20s — bank APIs can be slow
-            httpsAgent,
-        })
+        const response = await axios.post<RezopayInitiateResponse>(
+            endpoint,
+            body,
+            {
+                headers: buildHeaders(saltKey, secretKey),
+                timeout: 20000,
+                httpsAgent,
+            }
+        )
 
         console.log(
-            `[RezoPay Payout] Response → orderid=${payload.orderid} status=${response.data?.status} message=${response.data?.message}`
+            `[RezoPay Payout] ✅ Response → orderid=${payload.orderid}`,
+            JSON.stringify(response.data)
         )
 
         return response.data
@@ -169,29 +200,25 @@ export async function initiateRezoPayout(
 }
 
 /**
- * Check the current status of a payout transaction.
+ * Check the current status of a payout by orderid.
  *
- * Returns full status object including UTR on success.
+ * Endpoint: POST https://pg.sdmrc.in/api/v2/bank/check-status
  */
 export async function checkRezoPayoutStatus(
     orderid: string
 ): Promise<RezopayStatusResponse> {
-    const { apiKey, baseUrl } = getRezoPayConfig()
+    const { saltKey, secretKey, baseUrl } = getRezoPayConfig()
 
     const endpoint = `${baseUrl}/v2/bank/check-status`
 
-    console.log(`[RezoPay Status] Checking status → orderid=${orderid}`)
+    console.log(`[RezoPay Status] Checking → orderid=${orderid}`)
 
     try {
         const response = await axios.post<RezopayStatusResponse>(
             endpoint,
             { orderid },
             {
-                headers: {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "x-api-key": apiKey,
-                },
+                headers: buildHeaders(saltKey, secretKey),
                 timeout: 15000,
                 httpsAgent,
             }
@@ -210,15 +237,15 @@ export async function checkRezoPayoutStatus(
 }
 
 /**
- * Check the current payout wallet balance on RezoPay.
+ * Check the RezoPay payout wallet balance.
  *
- * NOTE: The docs say POST /check-balance with body { type: "payout" }.
- * The base URL for this endpoint is v1 (no /v2 prefix).
+ * Endpoint: POST https://pg.sdmrc.in/api/check-balance (no /v2!)
+ * Body: { "type": "payout" }
  */
 export async function checkRezoPayoutBalance(): Promise<RezopayBalanceResponse> {
-    const { apiKey, baseUrl } = getRezoPayConfig()
+    const { saltKey, secretKey, baseUrl } = getRezoPayConfig()
 
-    // Balance endpoint is NOT under /v2 per the API docs
+    // Balance endpoint has NO /v2 prefix — per official API docs
     const endpoint = `${baseUrl}/check-balance`
 
     console.log("[RezoPay Balance] Checking payout wallet balance...")
@@ -228,20 +255,13 @@ export async function checkRezoPayoutBalance(): Promise<RezopayBalanceResponse> 
             endpoint,
             { type: "payout" },
             {
-                headers: {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "x-api-key": apiKey,
-                },
+                headers: buildHeaders(saltKey, secretKey),
                 timeout: 10000,
                 httpsAgent,
             }
         )
 
-        console.log(
-            "[RezoPay Balance] Response:",
-            JSON.stringify(response.data)
-        )
+        console.log("[RezoPay Balance] Response:", JSON.stringify(response.data))
 
         return response.data
 

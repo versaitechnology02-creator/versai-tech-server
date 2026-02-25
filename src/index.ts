@@ -239,5 +239,6 @@ app.listen(PORT, () => {
   console.log(`🔗 UNPAY_WEBHOOK_URL: ${process.env.UNPAY_WEBHOOK_URL || 'Not Set'}`)
   console.log(`🔗 SMEPAY_CALLBACK_URL: ${process.env.SMEPAY_CALLBACK_URL || 'Not Set'}`)
   console.log(`🔗 REZOPAY_CALLBACK_URL: ${process.env.REZOPAY_CALLBACK_URL || 'Set in merchant panel: POST /api/gateway-payouts/callback'}`)
-  console.log(`💳 REZOPAY_API_KEY: ${process.env.REZOPAY_API_KEY ? '✅ Set' : '❌ NOT SET — add to .env'}`)
+  console.log(`💳 REZOPAY_SALT_KEY: ${process.env.REZOPAY_SALT_KEY ? '✅ Set' : '❌ NOT SET — add to .env'}`)
+  console.log(`🔑 REZOPAY_SECRET_KEY: ${process.env.REZOPAY_SECRET_KEY ? '✅ Set' : '❌ NOT SET — add to .env'}`)
 })
