@@ -26,7 +26,7 @@ router.post("/generate", authMiddleware, async (req: AuthRequest, res: Response)
     }
 
     // Generate unique key and secret
-    const key = `orion_${crypto.randomBytes(16).toString("hex")}`
+    const key = `op_live_${crypto.randomBytes(16).toString("hex")}`
     const secret = crypto.randomBytes(32).toString("hex")
 
     const apiKey = await ApiKey.create({

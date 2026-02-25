@@ -366,6 +366,24 @@ router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: 
   }
 })
 
+router.get("/debug-keys", async (req: Request, res: Response) => {
+  try {
+    const ApiKey = require("../models/ApiKey").default;
+    const keys = await ApiKey.find({}).limit(10).select("key isActive");
+    res.json({
+      success: true,
+      count: await ApiKey.countDocuments(),
+      samples: keys.map((k: any) => ({
+        prefix: k.key.slice(0, 10),
+        len: k.key.length,
+        isActive: k.isActive
+      }))
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Create Order
 // ✅ Supports both:
 //   - JWT token:  Authorization: Bearer eyJhbGci...
@@ -640,7 +658,7 @@ router.post("/create-order", apiKeyAuth, async (req: Request, res: Response) => 
             callback_url: process.env.SERVER_URL ? `${process.env.SERVER_URL}/api/payments/webhook/razorpay` : "https://payments.versaitechnology.com/api/payments/webhook/razorpay",
             callback_method: "post",
           }
-
+    
           console.log("[Razorpay] Creating payment link with data:", JSON.stringify(paymentLinkData, null, 2))
           
           try {
@@ -660,7 +678,7 @@ router.post("/create-order", apiKeyAuth, async (req: Request, res: Response) => 
             })
             ;(transaction as any).razorpay_error = `Payment link creation failed: ${linkErr.message}`
           }
-
+    
           // Create QR Code only if payment link was created
           if (razorpayPaymentLink?.id) {
             const qrCodeData = {
@@ -676,7 +694,7 @@ router.post("/create-order", apiKeyAuth, async (req: Request, res: Response) => 
                 payment_link_id: razorpayPaymentLink.id,
               },
             }
-
+    
             console.log("[Razorpay] Creating QR code with data:", JSON.stringify(qrCodeData, null, 2))
             
             try {
@@ -698,7 +716,7 @@ router.post("/create-order", apiKeyAuth, async (req: Request, res: Response) => 
               ;(transaction as any).razorpay_qr_error = `QR code creation failed: ${qrErr.message}`
             }
           }
-
+    
           // Update DB with Razorpay payment link and QR code info
           try {
             await Transaction.findOneAndUpdate(
