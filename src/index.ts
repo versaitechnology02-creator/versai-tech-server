@@ -39,6 +39,7 @@ import adminRoutes from './routes/admin'
 import { razorpayWebhookHandler } from './controllers/webhookController'
 import { startPaymentPolling } from './utils/paymentPoller'
 import unpayRoutes from './routes/unpay'
+import rezoPayoutRoutes from './routes/rezopay-payout'
 
 const app = express()
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT) || 5000
@@ -126,6 +127,18 @@ app.post("/api/payments/webhook/unpay", express.json(), (req, res, next) => {
     ; (unpayRoutes as any).handle(req, res, next)
 })
 
+// RezoPay Payout Callback — Public webhook (registered in RezoPay merchant panel)
+// MUST be before express.json() body parser so body is available for future HMAC use
+app.post(
+  "/api/gateway-payouts/callback",
+  express.json(),
+  (req, res, next) => {
+    console.log("[RezoPay Payout Callback] POST Hit")
+    req.url = '/callback'
+      ; (rezoPayoutRoutes as any).handle(req, res, next)
+  }
+)
+
 /* =========================================================
    MIDDLEWARES
 ========================================================= */
@@ -176,6 +189,8 @@ import payoutRoutes from './routes/payouts'
 app.use('/api/payouts', payoutRoutes)
 import adminPayoutRoutes from './routes/admin_payouts'
 app.use('/api/admin/payouts', adminPayoutRoutes)
+// RezoPay Gateway Payout routes
+app.use('/api/gateway-payouts', rezoPayoutRoutes)
 
 // Legacy SMEPay callback path used by provider: /api/smepay/callback
 // Rewrite to existing /api/payments/webhook/smepay handler without changing router structure
@@ -223,4 +238,6 @@ app.listen(PORT, () => {
   console.log(`🌍 SERVER_URL: ${process.env.SERVER_URL || 'Not Set'}`)
   console.log(`🔗 UNPAY_WEBHOOK_URL: ${process.env.UNPAY_WEBHOOK_URL || 'Not Set'}`)
   console.log(`🔗 SMEPAY_CALLBACK_URL: ${process.env.SMEPAY_CALLBACK_URL || 'Not Set'}`)
+  console.log(`🔗 REZOPAY_CALLBACK_URL: ${process.env.REZOPAY_CALLBACK_URL || 'Set in merchant panel: POST /api/gateway-payouts/callback'}`)
+  console.log(`💳 REZOPAY_API_KEY: ${process.env.REZOPAY_API_KEY ? '✅ Set' : '❌ NOT SET — add to .env'}`)
 })

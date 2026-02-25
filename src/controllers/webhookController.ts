@@ -3,6 +3,7 @@ import { Request, Response } from "express"
 import crypto from "crypto"
 import Transaction from "../models/Transaction"
 import { sseManager } from "../utils/sse"
+import { fireMerchantCallback, getMerchantCallbackUrl } from "../utils/merchantCallback"
 
 export const razorpayWebhookHandler = async (req: Request, res: Response) => {
     try {
@@ -105,6 +106,21 @@ export const razorpayWebhookHandler = async (req: Request, res: Response) => {
                     source: "razorpay_webhook",
                 })
                 console.log(`📡 [Razorpay Webhook] SSE broadcast sent for ${orderId}`)
+
+                // 🔔 Fire merchant callback (async — non-blocking)
+                const callbackUrl = await getMerchantCallbackUrl(orderId)
+                fireMerchantCallback(callbackUrl, {
+                    event: "payment.success",
+                    orderId,
+                    paymentId,
+                    amount: Math.round(amount / 100), // Convert paise → INR
+                    currency: "INR",
+                    status: "completed",
+                    message: "Payment captured successfully",
+                    timestamp: new Date().toISOString(),
+                    gatewayId: paymentId,
+                }).catch(() => { }) // already logged inside utility
+
             } else {
                 const existing = await Transaction.findOne({ orderId })
                 if (!existing) {
@@ -118,7 +134,7 @@ export const razorpayWebhookHandler = async (req: Request, res: Response) => {
             const payment = event.payload.payment?.entity
             if (payment) {
                 const orderId = payment.order_id
-                await Transaction.findOneAndUpdate(
+                const updated = await Transaction.findOneAndUpdate(
                     { orderId: orderId, status: "pending" },
                     {
                         $set: {
@@ -131,6 +147,21 @@ export const razorpayWebhookHandler = async (req: Request, res: Response) => {
                     { new: true }
                 )
                 console.log(`[Razorpay Webhook] Payment failed for orderId: ${orderId}. Reason: ${payment.error_description}`)
+
+                // 🔔 Fire merchant callback on failure
+                if (updated) {
+                    const callbackUrl = await getMerchantCallbackUrl(orderId)
+                    fireMerchantCallback(callbackUrl, {
+                        event: "payment.failed",
+                        orderId,
+                        paymentId: payment.id || "",
+                        amount: Math.round((payment.amount || 0) / 100),
+                        currency: "INR",
+                        status: "failed",
+                        message: payment.error_description || "Payment failed",
+                        timestamp: new Date().toISOString(),
+                    }).catch(() => { })
+                }
             }
         } else {
             console.log(`[Razorpay Webhook] ℹ️ Unhandled event: ${event.event} — returning 200 OK`)

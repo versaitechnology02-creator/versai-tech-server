@@ -4,6 +4,7 @@ import Transaction from "../models/Transaction"
 // @ts-ignore
 import { UNPAY_AES_KEY, UNPAY_IV } from "../config/unpay"
 import { sseManager } from "../utils/sse"
+import { fireMerchantCallback, getMerchantCallbackUrl } from "../utils/merchantCallback"
 
 const router = express.Router()
 
@@ -135,6 +136,34 @@ router.get("/callback", async (req: Request, res: Response) => {
                     source: "unpay_get_webhook",
                 })
                 console.log(`[UnPay Webhook GET] 📡 SSE broadcast sent for orderId=${apitxnid}`)
+
+                // 🔔 Fire merchant callback (async — non-blocking)
+                const callbackUrl = await getMerchantCallbackUrl(apitxnid)
+                fireMerchantCallback(callbackUrl, {
+                    event: "payment.success",
+                    orderId: apitxnid,
+                    paymentId: txnid || apitxnid,
+                    amount: Number(amount) || 0,
+                    currency: "INR",
+                    status: "completed",
+                    message: "Payment captured successfully via UnPay",
+                    timestamp: new Date().toISOString(),
+                    utr: utr || "",
+                    gatewayId: txnid || apitxnid,
+                }).catch(() => { })
+            } else if (newStatus === "failed") {
+                // 🔔 Fire merchant callback on failure
+                const callbackUrl = await getMerchantCallbackUrl(apitxnid)
+                fireMerchantCallback(callbackUrl, {
+                    event: "payment.failed",
+                    orderId: apitxnid,
+                    paymentId: txnid || apitxnid,
+                    amount: Number(amount) || 0,
+                    currency: "INR",
+                    status: "failed",
+                    message: message || `Payment failed (statuscode: ${statuscode})`,
+                    timestamp: new Date().toISOString(),
+                }).catch(() => { })
             }
         } else {
             const existing = await Transaction.findOne({ orderId: apitxnid })

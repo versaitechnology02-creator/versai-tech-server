@@ -6,6 +6,7 @@ import { verifySignature } from "../utils/crypto"
 import type { CreateOrderRequest, VerifyPaymentRequest, PaymentTransaction } from "../types/payment"
 import Transaction from "../models/Transaction"
 import User from "../models/User"
+import apiKeyAuth from "../middleware/apiKeyAuth"
 import authMiddleware from "../middleware/authMiddleware"
 import isVerified from "../middleware/isVerified"
 import { sseManager } from "../utils/sse"
@@ -366,7 +367,10 @@ router.post("/create-qr", authMiddleware, isVerified, async (req: Request, res: 
 })
 
 // Create Order
-router.post("/create-order", authMiddleware, isVerified, async (req: Request, res: Response) => {
+// ✅ Supports both:
+//   - JWT token:  Authorization: Bearer eyJhbGci...
+//   - API key:    Authorization: Bearer op_live_xxxx  (merchant integration)
+router.post("/create-order", apiKeyAuth, async (req: Request, res: Response) => {
   try {
     console.log("RAZORPAY_KEY_ID IN USE:", process.env.RAZORPAY_KEY_ID);
     console.log("RAZORPAY_KEY_SECRET SET:", process.env.RAZORPAY_KEY_SECRET ? "YES" : "NO");
@@ -382,7 +386,7 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
       finalUserId
     });
 
-    const { amount, currency = "INR", description, customer_id, receipt, notes, provider } = req.body as CreateOrderRequest & { provider?: string }
+    const { amount, currency = "INR", description, customer_id, receipt, notes, provider, callbackUrl } = req.body as CreateOrderRequest & { provider?: string; callbackUrl?: string }
 
     if (!amount || amount <= 0) {
       console.error("[Create Order] Validation Error: Invalid amount", {
@@ -460,10 +464,18 @@ router.post("/create-order", authMiddleware, isVerified, async (req: Request, re
           phone: customerPhone,
         },
         description: description || "",
-        notes: notes || {},
+        notes: {
+          ...(notes || {}),
+          // Store merchant's callback URL so we fire it on payment completion
+          merchant_callback_url: callbackUrl || null,
+        },
         createdAt: new Date(),
         updatedAt: new Date(),
       } as any);
+
+      if (callbackUrl) {
+        console.log(`[Create Order] Merchant callback URL registered: ${callbackUrl}`);
+      }
     } catch (err) {
       console.error("[Create Order] Failed to persist transaction:", err, {
         body: req.body

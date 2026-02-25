@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: orion-pay-server
+    name: versai-pay-server
     env: node
     buildCommand: npm install && npm run build
     startCommand: npm start
